@@ -1690,7 +1690,14 @@ static DWORD g_pickupDumpAt = 0;
 // upper-body copy is over, the bit is set back as the hang repair does - only if the word is exactly 0 (stuck
 // pick-up state) and nothing else owns the body (no layer 7 / hit / item animation, no other layer 10 request
 // such as the fog wall since the pick-up began).
+// FIX 2026-11-15 (player test: one loot pick-up failed, log ZNACZNIK 1): the bit came back only when the upper-body
+// copy ended, 0.9 s after the press. Presses inside that window found the word still 0 and were ended by the game in
+// the same frame without picking anything up; each of them also restarted the copy, so pressing again and again kept
+// the item on the ground (three presses in 0.5 s, loot of an enemy that had just fallen). The bit is now given back
+// kPickupFlagDelayMs after the game ended the pick-up; the upper-body copy keeps playing.
 static bool g_pickupGameEnded = false;  // the game ended the current redirected pick-up (layer 10 -1)
+static DWORD g_pickupGameEndedAt = 0;
+constexpr DWORD kPickupFlagDelayMs = 100;
 static bool g_pickupForeign = false;    // another layer 10/25 request since the pick-up began: leave the flag alone
 
 static void PickupRestoreMoveFlag(void* p3) {
@@ -1706,7 +1713,8 @@ static void PickupRestoreMoveFlag(void* p3) {
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return;
     }
-    Log("[%7lu ms] pickup: move flag ActionCtrl+0x1DC 00000000 -> 00100000 (pick-up state left)", GetTickCount() - g_t0);
+    Log("[%7lu ms] pickup: move flag ActionCtrl+0x1DC 00000000 -> 00100000 (pick-up state left, %lu ms after the game ended it)",
+        GetTickCount() - g_t0, GetTickCount() - g_pickupGameEndedAt);
 }
 
 static void PickupTick(void* p3) {
@@ -1714,8 +1722,9 @@ static void PickupTick(void* p3) {
         g_pickupDumpAt = 0;
         LogAutoDump("pickup", true);
     }
-    if (!g_pickupOnUpper) return;
     DWORD now = GetTickCount();
+    if (g_pickupGameEnded && now - g_pickupGameEndedAt >= kPickupFlagDelayMs) PickupRestoreMoveFlag(p3);
+    if (!g_pickupOnUpper) return;
     if (g_pickupEndAt && now >= g_pickupEndAt) {
         PickupEndUpper("game ended the pick-up");
         PickupRestoreMoveFlag(p3);
@@ -1760,6 +1769,7 @@ static bool PickupOnPlayAnim(void* ctx, void* out, int a3, int a4, char a5, int 
         DWORD due = g_pickupAt + kPickupMinMs;
         g_pickupEndAt = now >= due ? now : due;
         g_pickupGameEnded = true;
+        g_pickupGameEndedAt = now;
         Log("[%7lu ms] pickup: game ended the pick-up after %lu ms", now - g_t0, now - g_pickupAt);
     } else if (a3 >= 0 && (a4 == 7 || a4 == 11)) {
         PickupEndUpper(a4 == 7 ? "new action" : "hit");
