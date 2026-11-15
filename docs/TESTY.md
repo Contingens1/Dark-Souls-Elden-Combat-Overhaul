@@ -1,18 +1,26 @@
 # Testy do zrobienia
 
-Stan: 2026-11-15 wieczór, po wydaniu 0.5.3. **To jedyna aktualna lista testów.** Po każdym teście poprawiam ten plik.
+Stan: 2026-11-15 noc, po teście bossów; paczka nocna ma poprawkę lądowania ataków z wyskoku. **To jedyna aktualna lista testów.** Po każdym teście poprawiam ten plik.
 
 ## Jak uruchomić
 
 - **Prawie wszystko:** `dist\mods\bossy_nightreign\launch_test_all.bat`.
-  - DLL ma to samo co wydanie 0.5.3 (plus diagnostyka i F8).
+  - DLL ma to samo co wydanie 0.5.3, plus diagnostykę, F8 i poprawkę z punktu 1.
   - Zawiera wszystkich przerobionych bossów: Artoriasa, Capra, Gaping, Centipede, Stray i Gwyna.
-- **Wyjątek, punkt 7 (Centipede):** `dist\mods\c0000_er_engine\launch_er_engine.bat` (sam mod, bez bossów).
+- **Wyjątek, punkt 4 (Centipede):** `dist\mods\c0000_er_engine\launch_er_engine.bat` (sam mod, bez bossów).
 - Gdy coś jest nie tak: **F8** od razu (zapisuje log). W wiadomości napisz mniej więcej godzinę.
 
 ## Do przetestowania
 
-1. **Skok, przy okazji** (skok jest zaliczony i jest w 0.5.3; tych przypadków log jeszcze nie obejmował):
+1. **Ataki z wyskoku: lądowanie bez przeskoku** (nowe 15.11 w nocy). Po ataku w powietrzu postać opada szybciej i dotyka ziemi tuż przed uderzeniem broni, jak w ER.
+   - Katana i młot: R1 i R2, jedną ręką i oburącz.
+   - Z biegu i z miejsca, na płaskim.
+   - Czy przy lądowaniu biodra, nogi i broń nadal przeskakują. Przy katanie lekki ruch rąk może zostać, bo w ER też jest.
+   - Czy łuk ataku nie wygląda na ściągnięty w dół i czy zasięg w przód nie jest za krótki.
+   - Przy okazji: włócznia (tam różnica rąk jest największa).
+   - F8 po kilku próbach.
+   - Skok w dół z atakiem (z krawędzi) jeszcze nie jest poprawiony.
+2. **Skok, przy okazji** (skok jest zaliczony i jest w 0.5.3; tych przypadków log jeszcze nie obejmował):
    - skok z miejsca;
    - skok z marszu (wolno, gałka lekko wychylona);
    - zaraz po lądowaniu: puszczenie gałki, unik, atak;
@@ -21,16 +29,7 @@ Stan: 2026-11-15 wieczór, po wydaniu 0.5.3. **To jedyna aktualna lista testów.
    - chwyt i rzut działają jak wcześniej;
    - (przy okazji) włosy i broda.
    - Różnic względem DS1 prawie nie widać i tak ma być: druga faza SoC to te same ataki Gwyna w odświeżonych animacjach. Log walki potwierdza nowe AI (kombinacja 3000 → 3011 z SoC). Prawdziwie nowe ruchy to faza 2 (decyzja niżej).
-4. **Gaping Dragon** (Depths).
-   - Fala po skoku z wysoka przychodzi razem z uderzeniem, nie później.
-   - Szarża trafia najwyżej raz (wcześniej potrafiła zabić jednym przejazdem).
-5. **Capra Demon → Omen Killer** (Undead Burg).
-   - Ogon się porusza i nie wchodzi w podłogę.
-   - Czy ataki trafiają częściej niż ostatnio (wcześniej część przelatywała nad postacią).
-   - Ręce i tasaki opuszczone jak w ER, nie uniesione.
-6. **Stray Demon** (Azyl, powrót).
-   - Podmuch po skoku (ugniecenie zadem) i wybuch wokół niego przychodzą razem z uderzeniem.
-7. **Centipede Demon: test rozstrzygający** (Demon Ruins), z `launch_er_engine.bat`, **bez paczek bossów**.
+4. **Centipede Demon: test rozstrzygający** (Demon Ruins), z `launch_er_engine.bat`, **bez paczek bossów**.
    - Czy w oryginale da się trafić wyciągniętą mackę, zwłaszcza jej koniec z paszczą.
    - Od tego zależy, czy problem jest w naszych zmianach, czy w samej grze.
 
@@ -41,8 +40,10 @@ Stan: 2026-11-15 wieczór, po wydaniu 0.5.3. **To jedyna aktualna lista testów.
 
 ## Znane problemy (nie trzeba zgłaszać)
 
+- **Zawieszenie w arenie Stray Demona** (test 15.11: wiele razy, gdzie indziej rzadko). Przyczyna jest w logu do zbadania; na razie odłożone.
+- **Stray Demon ma tylko 2 ataki:** paczka zmienia tylko animacje, AI jest z gry. Nowe ataki wymagają pracy nad AI (na później).
+- **Skok w dół: po ~0,8 s lotu gałka przestaje działać.** Gra w spadaniu nie obraca postaci. Propozycja (obrót w powietrzu jak w ER) czeka na decyzję.
 - Broń wchodzi w teren przy R2 ze sprintu i z wyskoku (koszt tego, że się nie odbija; w ER tak samo).
-- Lądowanie po ataku z wyskoku: przeskok pozy (nogi i biodra w dół, przy katanie też ręce i broń), poza R2 młota. Przyczyna znaleziona 15.11, poprawka czeka na decyzję.
 - Sprint przy namierzeniu: postać biegnie zamiast sprintować (czeka na poprawkę).
 - Przedmiot, którego masz już 99, zostaje na ziemi bez komunikatu (tak działa gra).
 
@@ -59,10 +60,11 @@ Stan: 2026-11-15 wieczór, po wydaniu 0.5.3. **To jedyna aktualna lista testów.
     - dodatki (doskok, ciosy z opóźnieniem, buff po chwycie);
     - czy Gwyn ma wejść do wydania.
 - **Postura i cios krytyczny po przełamaniu** (jak w ER): czy zaczynamy od Black Knighta? Wynik analizy: animacja 2100 Black Knighta ma w TAE zdarzenia JumpTable 41 i typ 67, których zwykłe animacje nie mają. Hipoteza: „można wykonać ripostę”. Test: przełącznik w nocnej DLL, który po kilku trafieniach zleca 2100 najbliższemu Black Knightowi.
+- **Sterowanie w powietrzu przy długim spadaniu** (propozycja 15.11): DLL obraca postać do kierunku gałki przez cały lot, z prędkością obrotu jak w ER (60°/s; na początku spadania 180°/s). Rozpęd idzie za kierunkiem patrzenia, jak teraz.
 
 ## Zaliczone ostatnio
 
+- 15.11 noc: Capra Demon jako Omen Killer w porządku. Gaping Dragon bez krytycznych problemów (gracz chce do niego kiedyś wrócić, ma potencjał).
 - 15.11 wieczór (weszło do 0.5.3): skok z lądowaniem w bieg i w sprint, bez hamowania, bez poślizgu (także po skoku na wyższe), bez przeskoku rąk i broni w locie.
 - 15.11 (decyzja): wstawanie po powaleniu zostaje jak w DSR. Pierwszy unik i ruch są w tych samych chwilach co w ER; ER różni się tylko wyglądem (postać wstaje ~0,3 s wcześniej) i krótszą nietykalnością na ziemi.
 - 15.11 (po południu): bronie z unikalnym zestawem ruchów (Quelaag's Furysword, Dark Silver Tracer). Zwykłe ataki zostają unikalne, dodane (z wyskoku, ze sprintu) są z grupy broni, atak po przewrocie dobry. Atak z biegu Dark Silver Tracer wygląda jak R2: to oryginał DS1 (w DSR to sztylet, grupa 20; klip `a20_4500` jest taki sam w plikach gry). R2 ze sprintu w stylu ER mają na razie tylko młoty (grupy 33 i 35).
-- 15.11 (weszło do 0.5.2): podnoszenie przedmiotów; R2 ze sprintu młotów; R2 z wyskoku i ze sprintu Great Club i Smough's Hammer; brak odbijania od terenu; tempo ataków unikalnych.
