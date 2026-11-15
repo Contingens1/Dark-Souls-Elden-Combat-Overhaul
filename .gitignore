@@ -17,6 +17,7 @@ work/
 dist/
 analysis/
 gemini/
+GEMINI.MD
 .claude/
 
 # Archiwum notatek i historii (lokalne, nie publikujemy)

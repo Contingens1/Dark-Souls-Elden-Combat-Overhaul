@@ -15,8 +15,14 @@ A gameplay and engine modification for **Dark Souls: Remastered** that brings th
 | **Elden Ring rolls and backsteps** | The full set of dodge animations (4 load tiers × 4 directions) and backsteps, with invincibility frames and recovery windows matched to Elden Ring. |
 | **Walk, run and sprint from ER** | Locomotion animations for all 9 weapon stances and 3 encumbrance tiers. |
 | **Elden Ring attack pace** | Dynamic speed scaling of selected DSR attack phases (commitment and recovery windows) matched to Elden Ring timings for 14 melee weapon groups. |
-| **Estus while moving** | Drinking and turning while walking (including from an empty flask), with cancel windows into attack, dodge and guard matched to ER. |
+| **Estus while moving** | Drinking and turning while walking (including from an empty flask), with cancel windows into attack, dodge and guard matched to ER. The weapon hides while drinking, as in ER. |
+| **Picking up while moving** | Items are picked up without stopping, as in ER. |
+| **Free sprint** | Outside combat, sprinting does not use stamina, as in ER. |
 | **Lock-on camera** | Adjusted distance, field of view (FOV) and height of the camera while locked on to a target. |
+
+## Bosses
+
+Boss reworks are in progress. The first reworked boss is already in the package; more are planned.
 
 ## Repository layout
 
@@ -31,12 +37,11 @@ Ready-to-run packages for testers (no compilation needed) are on the **[Releases
 
 ## Acknowledgements and resources
 
-**Requirements:** the main package includes the Artorias boss rework, which uses animations ported from **Elden Ring Nightreign**. To use this mod you must therefore own **Elden Ring Nightreign**, in addition to Dark Souls: Remastered and Elden Ring.
-
 * **Player Animations Repository** (Nexus Mods, DSR #748) — Elden Ring animations ported to the DSR skeleton (used in the `.anibnd.dcx` files). **Further redistribution of these files without the repository authors' permission is prohibited.**
 * **DSROmniRoll** (Nexus Mods, DSR #1378) and **Simple Estus Walking** — conceptual inspiration for our own implementations of omni-directional rolling and drinking while moving (their files are not part of this project).
 * **Mod Engine 2** (`soulsmods`) — mod loading environment for Dark Souls: Remastered.
 * **MinHook** (Tsuda Kageyu) — hooking library used in `er_engine.dll`.
+* **Elden Ring Nightreign** (FromSoftware) — second-phase Artorias attack animations ported into the package.
 * **Community tools:** SoulsFormats, soulstruct, Ghidra, DS Anim Studio.
 
 **License:** the project code (`native/`, `tools/` and scripts) is released under the **MIT License**; see [LICENSE](LICENSE). The license does not cover game files, Elden Ring and Nightreign animations, or third-party tools (Mod Engine 2, MinHook, Ghidra, etc.), which remain under their own licenses.
@@ -47,4 +52,4 @@ This is an unofficial, non-commercial, fan-made modification created for educati
 
 All original game assets, animations, names, and trademarks belong to **FromSoftware, Inc.** and **Bandai Namco Entertainment Inc.**
 
-To use this mod, you must legally own copies of the respective games (*Dark Souls: Remastered* and *Elden Ring*). Do not monetize, re-upload, or redistribute these files commercially.
+To use this mod, you must legally own copies of the respective games (*Dark Souls: Remastered*, *Elden Ring* and *Elden Ring Nightreign*). Do not monetize, re-upload, or redistribute these files commercially.
