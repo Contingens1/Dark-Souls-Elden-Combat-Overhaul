@@ -480,6 +480,12 @@ static bool g_jumpClipToEnd = false;
 // JumpAtkMaxGravity, and the landing blend goes through PlayAnim's a6 (as in the run landing) instead of a record write.
 static bool g_jumpAtkTouchOn = false;
 static float g_jumpAtkMaxGravity = 40.f;
+// [Jump] AirTurnSpeed (deg/s, 0 = off; player report 2026-11-15: on a long jump down the stick stops working ~0.8 s in):
+// the fall momentum follows the facing, and DSR turns the character only while the jump clip plays (its fall loops
+// 1500 / 1550 have no turning). ER turns in the air all the time: SetTurnSpeed (TAE 224) 60 deg/s over the whole
+// Jump_Loop 202040 and FallLoop 004000. With the switch on, after the jump clip the DLL turns the character toward the
+// stick (world direction from the input ctx, as OmniRoll) at this rate.
+static float g_airTurnSpeed = 0.f;
 static bool g_lockFreeForced = false;
 static BYTE g_lockFreeSaved = 0;
 
@@ -717,6 +723,8 @@ static void LoadConfigIni() {
     g_jumpAtkTouchOn = GetPrivateProfileIntA("Jump", "JumpAtkTouchTiming", 0, iniPath) != 0;
     g_jumpAtkMaxGravity = static_cast<float>(GetPrivateProfileIntA("Jump", "JumpAtkMaxGravity", 40, iniPath));
     Log("config: JumpAtkTouchTiming=%d JumpAtkMaxGravity=%.0f m/s2", g_jumpAtkTouchOn ? 1 : 0, g_jumpAtkMaxGravity);
+    g_airTurnSpeed = static_cast<float>(GetPrivateProfileIntA("Jump", "AirTurnSpeed", 0, iniPath));
+    Log("config: AirTurnSpeed=%.0f deg/s", g_airTurnSpeed);
     Log("config: LandToRun=%d start %.2f/%.2f s, hold %lu/%lu ms, blend in %.2f out %.2f s", g_landRunOn ? 1 : 0,
         g_landRunStartSec, g_landDashStartSec, g_landRunHoldMs, g_landDashHoldMs, g_landRunBlendInSec, g_landRunBlendOutSec);
     Log("config: AttackFaceTarget=%d LockOnSprintFree=%d", g_attackFaceOn ? 1 : 0, g_lockSprintFreeOn ? 1 : 0);
@@ -2723,6 +2731,36 @@ static void AirMomentumStart(int anim) {
 
 static void AirMomentumOnOtherAnim() { g_momAnimOn = false; }
 
+// [Jump] AirTurnSpeed: one step of the in-air turn toward the stick (yaw at ChrPosData +0x4, written as OmniApplyYawNow
+// does; forward = (-sin, -cos), so the stick's world vector (wx, wz) at input ctx +0x10 / +0x18 is yaw atan2(-wx, -wz)).
+static DWORD g_airTurnLogAt = 0;
+static void AirTurnToStick(BYTE* ph, float dt) {
+    BYTE* in = g_inputCtx;
+    if (!in || dt <= 0.f || dt > 0.1f) return;
+    constexpr float kTwoPi = 6.2831853f, kPiF = 3.14159265f;
+    __try {
+        float wx = *reinterpret_cast<const float*>(in + 0x10), wz = *reinterpret_cast<const float*>(in + 0x18);
+        if (wx * wx + wz * wz < 0.01f) return;
+        float want = atan2f(-wx, -wz);
+        float cur = *reinterpret_cast<const float*>(ph + 0x4);
+        float d = want - cur;
+        while (d > kPiF) d -= kTwoPi;
+        while (d < -kPiF) d += kTwoPi;
+        float step = g_airTurnSpeed * (kPiF / 180.f) * dt;
+        float turn = d > step ? step : d < -step ? -step : d;
+        float y = cur + turn;
+        if (y > kPiF) y -= kTwoPi;
+        else if (y < -kPiF) y += kTwoPi;
+        *reinterpret_cast<float*>(ph + 0x4) = y;
+        DWORD now = GetTickCount();
+        if (kDiag && fabsf(d) > 0.05f && now - g_airTurnLogAt > 250) {
+            g_airTurnLogAt = now;
+            Log("[%7lu ms] rozped: obrot w powietrzu %.2f -> %.2f rad (galka %.2f, zostalo %.0f deg)", now - g_t0, cur, y, want,
+                fabsf(d - turn) * 180.f / kPiF);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
 static void AirMomentumTick(float dt) {
     if (!g_momJumpAt) return;
     DWORD now = GetTickCount();
@@ -2810,6 +2848,8 @@ static void AirMomentumTick(float dt) {
             } else if (!gravOff) {
                 float mag = sqrtf(g_axis[0] * g_axis[0] + g_axis[1] * g_axis[1]);
                 if (mag >= 0.2f) {  // galka: rozped dociaga do kierunku patrzenia (przod = -sin/-cos kata)
+                    // after the jump clip the game no longer turns the character: the DLL does (AirTurnSpeed, as in ER)
+                    if (g_airTurnSpeed > 0.f && !g_momAtk && (!g_momAnimOn || g_momCut)) AirTurnToStick(ph, dt);
                     float ang = PhysF(ph, 0x4);
                     float dx = -sinf(ang) * g_momVmax - g_mom[0], dz = -cosf(ang) * g_momVmax - g_mom[1];
                     float dl = sqrtf(dx * dx + dz * dz), step = kMomAirAccel * dt;
