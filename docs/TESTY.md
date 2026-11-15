@@ -12,15 +12,11 @@ Stan: 2026-11-15 wieczór, po teście gracza (skok, bronie unikalne, Gwyn). **To
 
 ## Do przetestowania
 
-1. **Skok, wersja 2** (15.11 wieczór). Test wersji 1: fizyka lądowania dobra (bez hamowania i bez poślizgu po płaskim i w dół), zostały: przeskok rąk i broni w locie, mocny poślizg po skoku z niższego na wyższy (schody). Wersja 2:
-   - klip skoku z ER gra do końca (do teraz był ucinany w 0,66 s, a dopiero jego koniec ma pozę pętli lotu);
-   - przez pierwsze 0,13 s lądowania prędkość ustawia DLL (przejście animacji dokładało do 1 m przesunięcia).
-
-   Do sprawdzenia:
-   - w locie ręce i broń bez przeskoku (z biegu, ze sprintu, z miejsca, krótki i długi skok);
-   - skok z niższego na wyższy (schody, krawędź): po lądowaniu bez poślizgu;
-   - to, co już działało: po płaskim i w dół bez hamowania i bez poślizgu, sprint z trzymanym B dalej sprintem, długi spadek z krótkim lądowaniem;
-   - porównanie: `JumpClipToEnd=0` (stary przeskok, a skok po ucięciu może hamować) albo `LandRunRootHold=0` (stary poślizg) w `dist\mods\c0000_er_engine_night\bin\er_engine.ini`.
+1. **Skok, wersja 2: zaliczony** (test 15.11 wieczór, „wygląda świetnie”, log potwierdza). Zostały krótkie sprawdzenia przy okazji, których log jeszcze nie obejmował:
+   - skok z miejsca (w teście nie było żadnego);
+   - skok z marszu (wolno, gałka lekko wychylona);
+   - zaraz po lądowaniu: puszczenie gałki, unik, atak;
+   - skok z bronią oburącz i z uniesioną tarczą.
 2. ~~Bronie z całym unikalnym zestawem ruchów~~: zaliczone 15.11 (na dole).
 3. **Gwyn** (Kiln of the First Flame), ruchy z Soul of Cinder z DS3. Test 15.11: miecz, płaszcz i ciosy wyglądają dobrze. Zostało:
    - chwyt i rzut działają jak wcześniej;
@@ -47,7 +43,7 @@ Stan: 2026-11-15 wieczór, po teście gracza (skok, bronie unikalne, Gwyn). **To
 ## Znane problemy (nie trzeba zgłaszać)
 
 - Broń wchodzi w teren przy R2 ze sprintu i z wyskoku (koszt tego, że się nie odbija; w ER tak samo).
-- Lądowanie po R1 z wyskoku: postać jest jeszcze ściągana w dół.
+- Lądowanie po ataku z wyskoku: przeskok pozy (nogi i biodra w dół, przy katanie też ręce i broń), poza R2 młota. Przyczyna znaleziona 15.11, poprawka czeka na decyzję.
 - Sprint przy namierzeniu: postać biegnie zamiast sprintować (czeka na poprawkę).
 - Przedmiot, którego masz już 99, zostaje na ziemi bez komunikatu (tak działa gra).
 
