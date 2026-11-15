@@ -83,6 +83,13 @@ Stan na 2026-11-13. Skrócona wersja: tylko to, co jest aktualne. Pełna histori
 
 ## 5. Lista zadań
 
+**Test gracza 2026-11-15 (gałąź `test-2026-11-15`, nocna DLL i `files_c0000_night`):**
+- **Działa:** tempo ataków unikalnych (Great Club, Smough's Hammer); R2 z wyskoku i ze sprintu tych broni; R2 ze sprintu i z wyskoku już się nie odbija od terenu (JT56 przez całe trafienie); podnoszenie przedmiotów.
+- Jedyne nieudane podniesienie to limit gry: postać miała 99 Purple Moss Clump, przedmiot zostaje na ziemi bez komunikatu. Tak działa DSR, to nie błąd moda.
+- **Znane, bez poprawki:** broń wchodzi w teren przy R2 ze sprintu i z wyskoku (skutek wyłączenia odbicia; w ER tak samo).
+- **Niesprawdzone:** bronie z pełnym unikalnym zestawem ruchów (Server, Murakumo, Quelaag's Furysword itp.); `FallSpeedFromGround` (domyślnie wyłączone, w nocnym ini włączone); Gwyn z Soul of Cinder; Gaping, Capra, Stray; Centipede bez paczek.
+- Nocne pliki ruchu = główny mod + R2 ze sprintu dla a33/a35 (3320/4320 i 4 HKX w a3x) + JT56 w atakach z wyskoku (porównane plik po pliku).
+
 **Noc 2026-11-14 (gałąź `night-2026-11-14`):** wyniki i testy na rano w `docsRAPORT_NOCY_2026-11-14.md`: osłona naprawy zawieszenia po wczytaniu (działa), podnoszenie z oknem przerwania od 0,5 s (paczka nocna), pomiar skoku, Centipede 3003 naprawiony, Stray Demon z ciosami Avatara, ustalenia ID demonów (c2230 Stray, c2231 Firesage, c2232 Asylum), Capra → Omen Killer (`c3070`) wykonalny, wstępna analiza postury.
 
 1. **Test gracza (zaległy):** przewroty po skosie przód–bok przy namierzeniu; przy okazji zwykła gra na paczce v0.3.0. Po akceptacji: fast-forward `main`, migawka `work\V14_…`. (Artorias v2 przetestowany 2026-11-13 — §6.)
