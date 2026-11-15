@@ -1,6 +1,6 @@
 # ER-Inspired DSR Remake
 
-Wersja angielska: [README-en.md](README-en.md)
+For English: [README-en.md](README-en.md)
 
 Projekt modyfikacji rozgrywki i silnika dla **Dark Souls: Remastered**, przenoszący responsywność ruchu, mechanikę uników, skoki, picie estusa w ruchu oraz tempo walki z **Elden Ringa** do pierwszego Dark Souls.
 
