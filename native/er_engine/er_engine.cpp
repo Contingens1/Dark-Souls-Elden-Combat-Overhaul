@@ -473,6 +473,13 @@ static DWORD g_landRunRootHoldMs = 130;  // [Jump] LandRunRootHold: velocity set
 // [Jump] JumpClipToEnd (test 2026-11-15, needs JT27 ending at ~0.64 s: tools/set_jump_gravity.py --jt27-end): the ER
 // jump clip plays to its end instead of being cut at 0.65 s; its last pose is the first pose of the ER flight loop.
 static bool g_jumpClipToEnd = false;
+// [Jump] JumpAtkTouchTiming (analysis 2026-11-15): the ER landing clip of a jump attack has its legs on the ground and
+// drops into the impact crouch around the hit, so a touchdown after ~0.5 s of the swing snapped the hips and legs. With
+// the switch on, the fall after a jump attack uses the gravity that puts the touchdown on flat ground at the swing time
+// where the landing fits best (jump_attack_touch.h, tools/jump_attack_touch.py), between kAirAtkGravity and
+// JumpAtkMaxGravity, and the landing blend goes through PlayAnim's a6 (as in the run landing) instead of a record write.
+static bool g_jumpAtkTouchOn = false;
+static float g_jumpAtkMaxGravity = 40.f;
 static bool g_lockFreeForced = false;
 static BYTE g_lockFreeSaved = 0;
 
@@ -707,6 +714,9 @@ static void LoadConfigIni() {
     g_landRunRootHoldMs = static_cast<DWORD>(GetPrivateProfileIntA("Jump", "LandRunRootHold", 130, iniPath));
     g_jumpClipToEnd = GetPrivateProfileIntA("Jump", "JumpClipToEnd", 0, iniPath) != 0;
     Log("config: LandRunRootHold=%lu ms JumpClipToEnd=%d", g_landRunRootHoldMs, g_jumpClipToEnd ? 1 : 0);
+    g_jumpAtkTouchOn = GetPrivateProfileIntA("Jump", "JumpAtkTouchTiming", 0, iniPath) != 0;
+    g_jumpAtkMaxGravity = static_cast<float>(GetPrivateProfileIntA("Jump", "JumpAtkMaxGravity", 40, iniPath));
+    Log("config: JumpAtkTouchTiming=%d JumpAtkMaxGravity=%.0f m/s2", g_jumpAtkTouchOn ? 1 : 0, g_jumpAtkMaxGravity);
     Log("config: LandToRun=%d start %.2f/%.2f s, hold %lu/%lu ms, blend in %.2f out %.2f s", g_landRunOn ? 1 : 0,
         g_landRunStartSec, g_landDashStartSec, g_landRunHoldMs, g_landDashHoldMs, g_landRunBlendInSec, g_landRunBlendOutSec);
     Log("config: AttackFaceTarget=%d LockOnSprintFree=%d", g_attackFaceOn ? 1 : 0, g_lockSprintFreeOn ? 1 : 0);
@@ -2028,6 +2038,7 @@ constexpr float kAirAtkHoriz = 0.85f;
 static int g_airSubFrom = -1, g_airSubTo = -1;
 static DWORD g_airSubAt = 0;
 #include "jump_attack_table.h"  // tools/add_jump_attacks.py
+#include "jump_attack_touch.h"  // tools/jump_attack_touch.py
 enum { kAtkNone, kAtkAir, kAtkLand };
 static int g_airAtkState = kAtkNone;
 static const JumpAttackRow* g_airAtkRow = nullptr;
@@ -2100,6 +2111,48 @@ static void AirAttackPlay(int anim) {  // jak gra: najpierw koniec na 7/23, pote
     for (int layer : {7, 23}) g_origPlayAnim(g_airAtkCtx, out, -1, layer, 0, g_airAtkA6, 0);
     if (anim > 0)
         for (int layer : {7, 23}) g_origPlayAnim(g_airAtkCtx, out, anim, layer, 0, g_airAtkA6, 0);
+}
+
+// [Jump] JumpAtkTouchTiming: the landing starts the way the run landing does (LandRunPlay, approved by the player 15.11):
+// one PlayAnim per layer with the blend time in a6 and no -1 before it. Before, the blend was written into the layer
+// record (+0x28) after a -1 + PlayAnim with the default blend, and it is not known whether the game reads it there.
+static void AirAttackPlayLanding(int anim) {
+    float b = g_landBlendSec;
+    int a6;
+    memcpy(&a6, &b, sizeof(a6));
+    unsigned long long out[2] = {};
+    for (int layer : {7, 23}) g_origPlayAnim(g_airAtkCtx, out, anim, layer, 0, a6, 0);
+}
+
+static unsigned JumpAttackTouchMs(int anim) {
+    for (const auto& r : kJumpAttackTouch) {
+        if (!r.anim) break;
+        if (r.anim == anim) return r.touchMs;
+    }
+    return 0;
+}
+
+// Fall gravity after a jump attack ([Jump] JumpAtkTouchTiming): the touchdown on the jump's starting level should come at
+// the swing time of jump_attack_touch.h. From now (e s after the swing started, h m above the start, vertical speed
+// vA - g * e with vA = g_airAtkV[1] taken at the swing start): h + (vA - g e) T - g T^2 / 2 = 0 for the time left T,
+// so g = (h + vA T) / (e T + T^2 / 2). Only ever faster than kAirAtkGravity, at most JumpAtkMaxGravity. Landing lower than
+// the start (jumping down) still comes later than that time.
+static float JumpAtkTouchGravity(DWORD now) {
+    unsigned touch = g_airAtkRow ? JumpAttackTouchMs(g_airAtkRow->anim) : 0;
+    BYTE* ph = ChrPosData();
+    if (!touch || !ph) return kAirAtkGravity;
+    float h = 0.f;
+    __try { h = *reinterpret_cast<float*>(ph + 0x14) - g_airY0; } __except (EXCEPTION_EXECUTE_HANDLER) { return kAirAtkGravity; }
+    float e = (now - g_airAtkAt) / 1000.f;
+    float T = touch / 1000.f - e;
+    if (T < 0.1f) T = 0.1f;
+    float vA = g_airAtkV[1];
+    float want = (h + vA * T) / (e * T + 0.5f * T * T);
+    float hi = g_jumpAtkMaxGravity > kAirAtkGravity ? g_jumpAtkMaxGravity : kAirAtkGravity;
+    float g = want < kAirAtkGravity ? kAirAtkGravity : want > hi ? hi : want;
+    Log("[%7lu ms] jump attack: fall gravity %.1f m/s2 (wanted %.1f) for a touchdown at %u ms of the swing (now %.0f ms, "
+        "height %.2f m, vertical %.2f m/s)", now - g_t0, g, want, touch, e * 1000.f, h, vA - g * e);
+    return g;
 }
 
 // End of the landing (move input or no input): -1 on layers 7/23 with the blend given in the ini instead of the
@@ -2208,7 +2261,8 @@ static void AirAttackReplayNow(bool fromGame) {  // gra skasowala nasze ladowani
     g_airAtkReplay = false;
     ++g_airAtkReplays;
     if (g_airAtkSpeedSet) { AirAttackSpeed(1.f); g_airAtkSpeedSet = false; }
-    AirAttackPlay(g_airAtkLandAnim);
+    if (g_jumpAtkTouchOn && g_landStartTimeOn && g_landBlendSec > 0.f) AirAttackPlayLanding(g_airAtkLandAnim);
+    else AirAttackPlay(g_airAtkLandAnim);
     if (kLandSync) g_airAtkLandT0 += (now - g_airAtkLandAt) / 1000.f;
     g_airAtkLandAt = now;
     AnimRecordProbeStart("landing started");
@@ -2708,6 +2762,7 @@ static void AirMomentumTick(float dt) {
                 g_momAtkAir = false;
                 g_momG = g_momAtk ? kAirAtkGravity : kMomGravity;
                 if (g_momAtk) {  // atak z wyskoku: wektor z chwili ataku (pion ograniczony do szczytu skoku)
+                    if (g_jumpAtkTouchOn && g_airAtkState == kAtkAir) g_momG = JumpAtkTouchGravity(now);
                     g_mom[0] = g_airAtkV[0] * kAirAtkHoriz; g_mom[1] = g_airAtkV[2] * kAirAtkHoriz;
                     vy0 = g_airAtkV[1] - g_momG * (now - g_airAtkVAt) / 1000.f;
                     g_airAtkVOk = false;
