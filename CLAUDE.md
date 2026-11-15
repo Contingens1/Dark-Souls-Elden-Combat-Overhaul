@@ -18,8 +18,9 @@
 
 ## Directory map (`C:\Users\nemos\workspace\ds1-elden-port\`)
 - `docs\PLAN_PROJEKTU.md` — current state, offsets, snapshots, task list. Keep it updated after each milestone.
-- `docs\` — specs, reference tables (`weapon_groups_dsr_er.md`), technical notes.
-- `docs\archive\` — archived notes and history. Read-only unless asked.
+- `docs\` — official, tracked docs: `PLAN_PROJEKTU.md`, `TESTY.md`, animation maps (`*_anim_map.md`), `er_anim_a000.md`, `weapon_groups_dsr_er.md`, `ref_DSR-Gadget_DSROffsets.cs`.
+- `docs\nieoficjalne\` — unofficial, git-ignored: working plans, night reports, scratch notes. Not published.
+- `docs\archive\` — archived notes and history. Read-only unless asked. Git-ignored.
 - `analysis\` — reverse-engineering findings, decompilation notes, offset research.
 - `native\er_engine\` — C++ source of `er_engine.dll`.
   - `build.bat` — dev build (`/DER_DIAG=1` by default). The game must be closed or the DLL copy fails.
@@ -44,6 +45,7 @@
 - PowerShell: multi-line `.Replace` with "`n" fails on CRLF. Use the Edit tool or `[IO.File]` with `[Environment]::NewLine`.
 - Ghidra headless: `JAVA_TOOL_OPTIONS=-Duser.name=nemos`, always `-readOnly`.
 - Test each mechanic in the game before moving to the next stage. Record the result in `docs\PLAN_PROJEKTU.md`.
+- **Plans and reports go to `docs\nieoficjalne\`, never to official docs.** Night reports, working plans, test logs and notes are unofficial. Write them there, not to `docs\` root or into the repo. Official content (`PLAN_PROJEKTU.md`, `TESTY.md`, animation maps, reference tables) stays in `docs\`. Do not link official docs to unofficial files; state the result inline.
 
 ## Git & GitHub Workflow
 (if git doesnt work continue working the old way and just let me know, dont interupt)

@@ -52,7 +52,7 @@ Stan: 2026-11-15, po wydaniu 0.5.2. **To jedyna aktualna lista testów.** Listy 
 
 ## Decyzje bez gry
 
-- **Postura i cios krytyczny po przełamaniu** (jak w ER): czy zaczynamy od Black Knighta? Opis: `docs\RAPORT_NOCY_2026-11-14.md` §9.
+- **Postura i cios krytyczny po przełamaniu** (jak w ER): czy zaczynamy od Black Knighta? Wynik analizy: animacja 2100 Black Knighta ma w TAE zdarzenia JumpTable 41 i typ 67, których zwykłe animacje nie mają. Hipoteza: „można wykonać ripostę”. Test: przełącznik w nocnej DLL, który po kilku trafieniach zleca 2100 najbliższemu Black Knightowi.
 
 ## Zaliczone ostatnio
 

@@ -21,3 +21,6 @@ gemini/
 
 # Archiwum notatek i historii (lokalne, nie publikujemy)
 docs/archive/
+
+# Plany i raporty robocze, nieoficjalne (lokalne, nie publikujemy)
+docs/nieoficjalne/
