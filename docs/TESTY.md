@@ -1,6 +1,6 @@
 # Testy do zrobienia
 
-Stan: 2026-11-15, po wydaniu 0.5.2. **To jedyna aktualna lista testów.** Listy w raportach nocnych (14.11, 15.11) są już nieaktualne. Po każdym teście poprawiam ten plik.
+Stan: 2026-11-15 wieczór, po teście gracza (skok, bronie unikalne, Gwyn). **To jedyna aktualna lista testów.** Listy w raportach nocnych (14.11, 15.11) są już nieaktualne. Po każdym teście poprawiam ten plik.
 
 ## Jak uruchomić
 
@@ -12,19 +12,12 @@ Stan: 2026-11-15, po wydaniu 0.5.2. **To jedyna aktualna lista testów.** Listy 
 
 ## Do przetestowania
 
-1. **Skok z biegu i ze sprintu** (nowe ustawienie `FallSpeedFromGround`).
-   - Z biegu: po lądowaniu postać nie hamuje, od razu biegnie dalej.
-   - Ze sprintu: po lądowaniu bez poślizgu modelu.
-   - Czy skok z biegu nadal wystarcza na przeskoki, które wcześniej się udawały.
-   - Porównanie (jeśli nie wiesz, czy jest lepiej): ustaw `FallSpeedFromGround=0` w `dist\mods\c0000_er_engine_night\bin\er_engine.ini` i uruchom grę ponownie.
-2. **Bronie z całym unikalnym zestawem ruchów** (dowolna, którą masz: Server, Murakumo, Quelaag's Furysword, Great Scythe, Gravelord Sword, Crescent Axe, Dark Silver Tracer, Gold Tracer).
-   - R1 kilka razy pod rząd, R2, atak z biegu, atak po przewrocie.
-   - Czy przyspieszony zamach wygląda naturalnie i czy tempo pasuje do innych broni.
-3. **Gwyn** (Kiln of the First Flame), ruchy z Soul of Cinder z DS3.
-   - Wygląd ataków: miecz, płaszcz, broda, włosy (czy się ruszają, czy nic nie odstaje).
-   - Czy ciosy trafiają tam, gdzie widać miecz.
-   - Chwyt i rzut działają jak wcześniej.
-   - Nowe kombinacje (np. kopniak → chwyt, pchnięcie → cięcie oburącz) i tempo walki.
+1. **Skok z biegu i ze sprintu: na razie nie testować.** Test 15.11: `FallSpeedFromGround` nic nie zmienił (hamowanie po biegu, rozpędzanie od nowa po sprincie, lekki poślizg, przeskok animacji przy dłuższych skokach). Przyczyna jest w lądowaniu, nie w locie. Nowa wersja w przygotowaniu, opis testu pojawi się tutaj.
+2. ~~Bronie z całym unikalnym zestawem ruchów~~: zaliczone 15.11 (na dole).
+3. **Gwyn** (Kiln of the First Flame), ruchy z Soul of Cinder z DS3. Test 15.11: miecz, płaszcz i ciosy wyglądają dobrze. Zostało:
+   - chwyt i rzut działają jak wcześniej;
+   - (przy okazji) włosy i broda.
+   - Różnic względem DS1 prawie nie widać i tak ma być: druga faza SoC to te same ataki Gwyna w odświeżonych animacjach. Log walki potwierdza nowe AI (kombinacja 3000 → 3011 z SoC). Prawdziwie nowe ruchy to faza 2 (decyzja niżej).
 4. **Gaping Dragon** (Depths).
    - Fala po skoku z wysoka przychodzi razem z uderzeniem, nie później.
    - Szarża trafia najwyżej raz (wcześniej potrafiła zabić jednym przejazdem).
@@ -52,9 +45,11 @@ Stan: 2026-11-15, po wydaniu 0.5.2. **To jedyna aktualna lista testów.** Listy 
 
 ## Decyzje bez gry
 
+- **Gwyn, faza 2** (gracz 15.11: „jak najbardziej za”): nowe ataki SoC 3022–3032 (pociski, wielki atak, kombinacja z wybuchem). Wymagają wspólnej paczki GameParam. Kolejność: najpierw skoki, potem plan fazy 2.
 - **Postura i cios krytyczny po przełamaniu** (jak w ER): czy zaczynamy od Black Knighta? Wynik analizy: animacja 2100 Black Knighta ma w TAE zdarzenia JumpTable 41 i typ 67, których zwykłe animacje nie mają. Hipoteza: „można wykonać ripostę”. Test: przełącznik w nocnej DLL, który po kilku trafieniach zleca 2100 najbliższemu Black Knightowi.
 
 ## Zaliczone ostatnio
 
+- 15.11 (po południu): bronie z unikalnym zestawem ruchów (Quelaag's Furysword, Dark Silver Tracer). Zwykłe ataki zostają unikalne, dodane (z wyskoku, ze sprintu) są z grupy broni, atak po przewrocie dobry. Atak z biegu Dark Silver Tracer wygląda jak R2: to oryginał DS1 (w DSR to sztylet, grupa 20; klip `a20_4500` jest taki sam w plikach gry). R2 ze sprintu w stylu ER mają na razie tylko młoty (grupy 33 i 35).
 - 15.11 (weszło do 0.5.2): podnoszenie przedmiotów; R2 ze sprintu młotów; R2 z wyskoku i ze sprintu Great Club i Smough's Hammer; brak odbijania od terenu; tempo ataków unikalnych.
 - 14.11: Estus chowa broń; podnoszenie w marszu; ataki z wyskoku katany i pięści; osłona przed zawieszeniem po wczytaniu.

@@ -84,6 +84,11 @@ Stan na 2026-11-15 (po wydaniu 0.5.2). Skrócona wersja: tylko to, co jest aktua
 
 ## 5. Lista zadań
 
+**Test gracza 2026-11-15, po południu (nocna DLL 0.5.2 + `FallSpeedFromGround=1`, `launch_test_all.bat`):**
+- **Działa:** Quelaag's Furysword i Dark Silver Tracer (zwykłe ataki unikalne, dodane z grupy broni; atak po przewrocie). Atak z biegu DST = oryginał DS1 (DST to w DSR sztylet, grupa 20, klip `a20_4500`).
+- **Gwyn (SoC):** wygląd i ciosy dobre; chwyt niesprawdzony. Log walki (244–340 s): 3019, łańcuchy DS1 (3000 → 3003, 3012 → 3014/3015), 3006/3023, nowa kombinacja SoC 3000 → 3011. Gracz chce fazy 2 (ataki 3022–3032).
+- **Skok: bez poprawy.** Pomiar z logu: w locie prędkość jest już dobra (bieg 4,4 m/s, sprint 6,4), hamuje lądowanie. Gra uruchamia lokomocję od zera: bieg 4,4 → 1,2 m/s i z powrotem 4,15 po ~0,4 s; sprint (B trzymany) 6,4 → 2,9 i sprint wraca po ~0,45 s. Na lądowaniu gra nie zleca nic na warstwie 7, tylko kończy spadanie na 8/24. Przeskok animacji: klip ER kończymy po 0,66 s, potem gra pokazuje pozę spadania DSR `1550` (warstwy 8/24), a przy spadaniu > ~0,4 s jeszcze lekkie lądowanie `1750` (zatrzymanie, ruch od 0,37 s). Klipy ER do naprawy (repozytorium, format DSR): `202040` Jump_Loop, `202115` Land_To_Run (3,3 → 4,7 m/s), `202125` Land_To_Dash_Light (1,2 → 6,5 m/s), `004080` FallJumpStart.
+
 **Test gracza 2026-11-15 (gałąź `test-2026-11-15`, nocna DLL i `files_c0000_night`):**
 - **Działa:** tempo ataków unikalnych (Great Club, Smough's Hammer); R2 z wyskoku i ze sprintu tych broni; R2 ze sprintu i z wyskoku już się nie odbija od terenu (JT56 przez całe trafienie); podnoszenie przedmiotów.
 - Jedyne nieudane podniesienie to limit gry: postać miała 99 Purple Moss Clump, przedmiot zostaje na ziemi bez komunikatu. Tak działa DSR, to nie błąd moda.
