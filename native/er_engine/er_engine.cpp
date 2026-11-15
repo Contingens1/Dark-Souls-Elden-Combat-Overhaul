@@ -370,6 +370,48 @@ static bool IsLockedOnRollable(const BYTE* ctx, void* p3) {
     }
 }
 
+// --- Stick -> world direction without the game's move vector ([Jump] AirTurnSpeed) ----------------------------------
+// In the air the game may not fill the input ctx move vector (+0x10/+0x18; first air-turn test 2026-11-15: not one
+// turn logged). The camera term of the mapping is kept from ground frames, where both the stick (g_axis) and the
+// world vector are known: rotation (world yaw = c + atan2(ax, ay)) or mirror (world yaw = c - atan2(ax, ay)); the roll
+// log fits the mirror better (median 43 vs 91 deg over pairs up to 3 s apart), so each frame with the stick turning
+// and the camera still decides which candidate stays constant.
+static float g_stickCamRot = 0.f, g_stickCamMir = 0.f, g_stickPrevAng = 0.f;
+static float g_stickErrRot = 0.f, g_stickErrMir = 0.f;
+static bool g_stickCamOk = false;
+static DWORD g_stickCamAt = 0;
+static float WrapPi(float a) {
+    while (a > 3.14159265f) a -= 6.2831853f;
+    while (a < -3.14159265f) a += 6.2831853f;
+    return a;
+}
+static void StickCameraSample(float wx, float wz) {
+    BYTE* ph = ChrPosData();
+    float am2 = g_axis[0] * g_axis[0] + g_axis[1] * g_axis[1];
+    if (!ph || wx * wx + wz * wz < 0.25f || am2 < 0.25f) return;
+    __try { if (!ph[0x32]) return; } __except (EXCEPTION_EXECUTE_HANDLER) { return; }  // ground frames only
+    float s = atan2f(g_axis[0], g_axis[1]), w = atan2f(-wx, -wz);
+    float rot = WrapPi(w - s), mir = WrapPi(w + s);
+    DWORD now = GetTickCount();
+    if (g_stickCamOk && now - g_stickCamAt < 100 && fabsf(WrapPi(s - g_stickPrevAng)) > 0.05f) {
+        g_stickErrRot = g_stickErrRot * 0.98f + fabsf(WrapPi(rot - g_stickCamRot));
+        g_stickErrMir = g_stickErrMir * 0.98f + fabsf(WrapPi(mir - g_stickCamMir));
+    }
+    g_stickCamRot = rot;
+    g_stickCamMir = mir;
+    g_stickPrevAng = s;
+    g_stickCamAt = now;
+    g_stickCamOk = true;
+}
+static bool StickWorldYaw(float* yaw, const char** how) {
+    if (!g_stickCamOk) return false;
+    float s = atan2f(g_axis[0], g_axis[1]);
+    bool mirror = g_stickErrMir <= g_stickErrRot;
+    *yaw = mirror ? WrapPi(g_stickCamMir - s) : WrapPi(g_stickCamRot + s);
+    *how = mirror ? "stick + camera (mirror)" : "stick + camera (rotation)";
+    return true;
+}
+
 static void OmniApplyYawNow(float yaw) {
     if (BYTE* pos = ChrPosData()) {
         __try {
@@ -473,6 +515,12 @@ static DWORD g_landRunRootHoldMs = 130;  // [Jump] LandRunRootHold: velocity set
 // [Jump] JumpClipToEnd (test 2026-11-15, needs JT27 ending at ~0.64 s: tools/set_jump_gravity.py --jt27-end): the ER
 // jump clip plays to its end instead of being cut at 0.65 s; its last pose is the first pose of the ER flight loop.
 static bool g_jumpClipToEnd = false;
+// [Jump] AirTurnSpeed (deg/s, 0 = off; player report 2026-11-15: on a long jump down the stick stops working ~0.8 s in):
+// the fall momentum follows the facing, and DSR turns the character only while the jump clip plays (its fall loops
+// 1500 / 1550 have no turning). ER turns in the air all the time: SetTurnSpeed (TAE 224) 60 deg/s over the whole
+// Jump_Loop 202040 and FallLoop 004000. With the switch on, after the jump clip the DLL turns the character toward the
+// stick (world direction from the input ctx, as OmniRoll) at this rate.
+static float g_airTurnSpeed = 0.f;
 static bool g_lockFreeForced = false;
 static BYTE g_lockFreeSaved = 0;
 
@@ -543,6 +591,7 @@ static void OmniRollPostInput(BYTE* ctx, float dt, void* p3) {
     float wx = *reinterpret_cast<const float*>(ctx + 0x10);
     float wz = *reinterpret_cast<const float*>(ctx + 0x18);
     float wlen2 = wx * wx + wz * wz;
+    StickCameraSample(wx, wz);
     if (wlen2 > 0.01f) {
         g_omniLastStickYaw = atan2f(-wx, -wz);
         g_omniLastStickAt = now ? now : 1;
@@ -707,6 +756,8 @@ static void LoadConfigIni() {
     g_landRunRootHoldMs = static_cast<DWORD>(GetPrivateProfileIntA("Jump", "LandRunRootHold", 130, iniPath));
     g_jumpClipToEnd = GetPrivateProfileIntA("Jump", "JumpClipToEnd", 0, iniPath) != 0;
     Log("config: LandRunRootHold=%lu ms JumpClipToEnd=%d", g_landRunRootHoldMs, g_jumpClipToEnd ? 1 : 0);
+    g_airTurnSpeed = static_cast<float>(GetPrivateProfileIntA("Jump", "AirTurnSpeed", 0, iniPath));
+    Log("config: AirTurnSpeed=%.0f deg/s", g_airTurnSpeed);
     Log("config: LandToRun=%d start %.2f/%.2f s, hold %lu/%lu ms, blend in %.2f out %.2f s", g_landRunOn ? 1 : 0,
         g_landRunStartSec, g_landDashStartSec, g_landRunHoldMs, g_landDashHoldMs, g_landRunBlendInSec, g_landRunBlendOutSec);
     Log("config: AttackFaceTarget=%d LockOnSprintFree=%d", g_attackFaceOn ? 1 : 0, g_lockSprintFreeOn ? 1 : 0);
@@ -2669,6 +2720,54 @@ static void AirMomentumStart(int anim) {
 
 static void AirMomentumOnOtherAnim() { g_momAnimOn = false; }
 
+// [Jump] AirTurnSpeed: one step of the in-air turn toward the stick (yaw at ChrPosData +0x4, written as OmniApplyYawNow
+// does; forward = (-sin, -cos), so the stick's world vector (wx, wz) at input ctx +0x10 / +0x18 is yaw atan2(-wx, -wz)).
+// The target is the input ctx vector when the game fills it, else the stick mapped with the camera term kept from the
+// ground (StickWorldYaw). The diag build logs every 250 ms of the turn both sources, so the next test shows which one
+// works in the air and whether the game keeps the written yaw.
+static DWORD g_airTurnLogAt = 0;
+static void AirTurnToStick(BYTE* ph, float dt) {
+    if (dt <= 0.f || dt > 0.1f) return;
+    __try {
+        float wx = 0.f, wz = 0.f;
+        if (BYTE* in = g_inputCtx) {
+            wx = *reinterpret_cast<const float*>(in + 0x10);
+            wz = *reinterpret_cast<const float*>(in + 0x18);
+        }
+        float mapped = 0.f;
+        const char* mapHow = "none";
+        bool mapOk = StickWorldYaw(&mapped, &mapHow);
+        // Test 2026-11-15 night (v2): in the air the input ctx vector stays frozen at the take-off direction (0.42 0.91
+        // for 0.6 s while the stick went 0.12 -0.99 -> 0.90 0.44), so it always equals the facing and nothing turned.
+        // The stick mapped with the ground camera term is used first; the frozen vector only without a mapping.
+        float want;
+        const char* how;
+        if (mapOk) { want = mapped; how = mapHow; }
+        else if (wx * wx + wz * wz >= 0.01f) { want = atan2f(-wx, -wz); how = "input ctx (frozen in the air)"; }
+        else want = 0.f, how = nullptr;
+        DWORD now = GetTickCount();
+        bool logNow = kDiag && now - g_airTurnLogAt > 250;
+        if (logNow) g_airTurnLogAt = now;
+        float cur = *reinterpret_cast<const float*>(ph + 0x4);
+        if (!how) {
+            if (logNow)
+                Log("[%7lu ms] rozped: obrot w powietrzu - brak kierunku (wektor gry %.2f %.2f, osie %.2f %.2f, kamera nieznana)",
+                    now - g_t0, wx, wz, g_axis[0], g_axis[1]);
+            return;
+        }
+        float d = WrapPi(want - cur);
+        float step = g_airTurnSpeed * (3.14159265f / 180.f) * dt;
+        float turn = d > step ? step : d < -step ? -step : d;
+        float y = WrapPi(cur + turn);
+        *reinterpret_cast<float*>(ph + 0x4) = y;
+        if (logNow)
+            Log("[%7lu ms] rozped: obrot w powietrzu %.2f -> %.2f rad, cel %.2f (%s; wektor gry %.2f %.2f, mapa %.2f %s, osie %.2f %.2f, "
+                "blad lustro %.1f / obrot %.1f, kamera sprzed %lu ms), zostalo %.0f deg, ped %.2f %.2f", now - g_t0, cur, y, want, how,
+                wx, wz, mapped, mapOk ? "" : "(brak)", g_axis[0], g_axis[1], g_stickErrMir, g_stickErrRot, now - g_stickCamAt,
+                fabsf(WrapPi(d - turn)) * 57.29578f, g_mom[0], g_mom[1]);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
 static void AirMomentumTick(float dt) {
     if (!g_momJumpAt) return;
     DWORD now = GetTickCount();
@@ -2755,6 +2854,8 @@ static void AirMomentumTick(float dt) {
             } else if (!gravOff) {
                 float mag = sqrtf(g_axis[0] * g_axis[0] + g_axis[1] * g_axis[1]);
                 if (mag >= 0.2f) {  // galka: rozped dociaga do kierunku patrzenia (przod = -sin/-cos kata)
+                    // after the jump clip the game no longer turns the character: the DLL does (AirTurnSpeed, as in ER)
+                    if (g_airTurnSpeed > 0.f && !g_momAtk && (!g_momAnimOn || g_momCut)) AirTurnToStick(ph, dt);
                     float ang = PhysF(ph, 0x4);
                     float dx = -sinf(ang) * g_momVmax - g_mom[0], dz = -cosf(ang) * g_momVmax - g_mom[1];
                     float dl = sqrtf(dx * dx + dz * dz), step = kMomAirAccel * dt;
