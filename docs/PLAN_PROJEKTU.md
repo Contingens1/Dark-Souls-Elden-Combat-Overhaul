@@ -165,7 +165,7 @@ Cel gracza: Artorias jako szczytowy boss — szybszy, trudniejszy do unikania, d
 
 ## 7. Offsety i funkcje (Ghidra)
 
-Cel: `DarkSoulsRemastered.exe`, SHA-256 `A45AAA36…`. Arxan szyfruje część kodu — analiza na zrzucie `work\ghidra\DSR_decrypted.exe` (projekt `DSR_dec`), dekompilacja w `work\ghidra\decomp\`. Headless: `JAVA_TOOL_OPTIONS=-Duser.name=nemos`, `-readOnly`.
+Cel: `DarkSoulsRemastered.exe`, SHA-256 `A45AAA36…`. Arxan szyfruje część kodu — analiza na zrzucie `work\ghidra\DSR_decrypted.exe` (projekt `DSR_dec`), dekompilacja w `work\ghidra\decomp\`. Headless: `JAVA_TOOL_OPTIONS=-Duser.name=nemos`, `-readOnly`. Uruchamiany z aplikacji Claude (MSIX przekierowuje `AppData\Roaming`) dodatkowo `-Dapplication.settingsdir=C:\Users\nemos\workspace\ds1-elden-port\work\ghidra\settings`, inaczej Felix/OSGi nie startuje.
 
 **Hooki:** PlayAnim RVA `0x37A040` `(ctx, out, anim, layer, a5, a6, a7)`; handler wejścia `0x396860`, w nim `FUN_140398920(ctx, dt, p3)` = unik i skok; `0x1A46B0` akcja `0x5C` (unik wciśnięty), `0x1A4610` akcja `0x5B` (trzymany); krok fizyki `0x2BB150`. Prologi odszyfrowane przez Arxana (`WaitForGameReady`): `0x396860`, `0x37A040`, `0x398E4F`, `0x2BB150`.
 
