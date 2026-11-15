@@ -1,23 +1,22 @@
 # Testy do zrobienia
 
-Stan: 2026-11-15 wieczór, po teście gracza (skok, bronie unikalne, Gwyn). **To jedyna aktualna lista testów.** Listy w raportach nocnych (14.11, 15.11) są już nieaktualne. Po każdym teście poprawiam ten plik.
+Stan: 2026-11-15 wieczór, po wydaniu 0.5.3. **To jedyna aktualna lista testów.** Po każdym teście poprawiam ten plik.
 
 ## Jak uruchomić
 
 - **Prawie wszystko:** `dist\mods\bossy_nightreign\launch_test_all.bat`.
-  - DLL ma to samo co wydanie 0.5.2, plus nowe lądowanie po skoku (punkt 1).
+  - DLL ma to samo co wydanie 0.5.3 (plus diagnostyka i F8).
   - Zawiera wszystkich przerobionych bossów: Artoriasa, Capra, Gaping, Centipede, Stray i Gwyna.
 - **Wyjątek, punkt 7 (Centipede):** `dist\mods\c0000_er_engine\launch_er_engine.bat` (sam mod, bez bossów).
 - Gdy coś jest nie tak: **F8** od razu (zapisuje log). W wiadomości napisz mniej więcej godzinę.
 
 ## Do przetestowania
 
-1. **Skok, wersja 2: zaliczony** (test 15.11 wieczór, „wygląda świetnie”, log potwierdza). Zostały krótkie sprawdzenia przy okazji, których log jeszcze nie obejmował:
-   - skok z miejsca (w teście nie było żadnego);
+1. **Skok, przy okazji** (skok jest zaliczony i jest w 0.5.3; tych przypadków log jeszcze nie obejmował):
+   - skok z miejsca;
    - skok z marszu (wolno, gałka lekko wychylona);
    - zaraz po lądowaniu: puszczenie gałki, unik, atak;
    - skok z bronią oburącz i z uniesioną tarczą.
-2. ~~Bronie z całym unikalnym zestawem ruchów~~: zaliczone 15.11 (na dole).
 3. **Gwyn** (Kiln of the First Flame), ruchy z Soul of Cinder z DS3. Test 15.11: miecz, płaszcz i ciosy wyglądają dobrze. Zostało:
    - chwyt i rzut działają jak wcześniej;
    - (przy okazji) włosy i broda.
@@ -38,7 +37,7 @@ Stan: 2026-11-15 wieczór, po teście gracza (skok, bronie unikalne, Gwyn). **To
 ## Na bieżąco, przy zwykłej grze
 
 - **Zawieszenie postaci** (stoi w miejscu mimo wciśniętego kierunku): F8 od razu.
-- **Paczka 0.5.2:** jeśli zagrasz z zainstalowanej paczki (launcher wydania), napisz, czy wszystko działa jak w wersji testowej. Samej paczki nikt jeszcze nie uruchamiał.
+- **Paczka 0.5.3:** jeśli zagrasz z zainstalowanej paczki (launcher wydania zaproponuje aktualizację z 0.5.2), napisz, czy wszystko działa jak w wersji testowej.
 
 ## Znane problemy (nie trzeba zgłaszać)
 
@@ -63,7 +62,7 @@ Stan: 2026-11-15 wieczór, po teście gracza (skok, bronie unikalne, Gwyn). **To
 
 ## Zaliczone ostatnio
 
+- 15.11 wieczór (weszło do 0.5.3): skok z lądowaniem w bieg i w sprint, bez hamowania, bez poślizgu (także po skoku na wyższe), bez przeskoku rąk i broni w locie.
 - 15.11 (decyzja): wstawanie po powaleniu zostaje jak w DSR. Pierwszy unik i ruch są w tych samych chwilach co w ER; ER różni się tylko wyglądem (postać wstaje ~0,3 s wcześniej) i krótszą nietykalnością na ziemi.
 - 15.11 (po południu): bronie z unikalnym zestawem ruchów (Quelaag's Furysword, Dark Silver Tracer). Zwykłe ataki zostają unikalne, dodane (z wyskoku, ze sprintu) są z grupy broni, atak po przewrocie dobry. Atak z biegu Dark Silver Tracer wygląda jak R2: to oryginał DS1 (w DSR to sztylet, grupa 20; klip `a20_4500` jest taki sam w plikach gry). R2 ze sprintu w stylu ER mają na razie tylko młoty (grupy 33 i 35).
 - 15.11 (weszło do 0.5.2): podnoszenie przedmiotów; R2 ze sprintu młotów; R2 z wyskoku i ze sprintu Great Club i Smough's Hammer; brak odbijania od terenu; tempo ataków unikalnych.
-- 14.11: Estus chowa broń; podnoszenie w marszu; ataki z wyskoku katany i pięści; osłona przed zawieszeniem po wczytaniu.

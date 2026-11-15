@@ -44,6 +44,15 @@ An update changes only the files in the mod folder — it does not touch the gam
 - **Play offline only.** The mod changes how the game works in memory — online play risks a ban. The mod has no network block of its own; before launching, switch Steam to offline mode or set the game to start offline.
 - On a different version of `DarkSoulsRemastered.exe` the hooks will not install and the DLL mechanics will not work (log: `bin\er_engine.log`).
 
+## New in 0.5.3
+
+Test version (pre-release): fixes checked in the game, but bugs may still appear. The package still contains only the Artorias boss from the reworked bosses.
+
+- **Landing after a jump as in Elden Ring.** After a jump from a run the character lands into a run, after a sprint jump with B held into a sprint, without slowing down or building up speed again. A longer fall keeps a short landing (as in ER). To turn it off: `LandToRun=0` in `bin\er_engine.ini`.
+- **No slide** after landing, also after jumping from lower onto higher ground (stairs, ledges).
+- **No arm or weapon jump in the air:** the Elden Ring jump animation plays to its end and flows into the ER flight pose.
+- **Known problems:** when landing after a jump attack the pose jumps (hips and legs drop, with the katana also the arms), except for the hammer R2; a fix is being prepared.
+
 ## New in 0.5.2
 
 Test version (pre-release): fixes checked in the game, but bugs may still appear. The package still contains only the Artorias boss from the reworked bosses.

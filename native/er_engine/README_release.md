@@ -44,6 +44,15 @@ Aktualizacja zmienia wyłącznie pliki w folderze moda — nie dotyka gry ani Mo
 - **Graj wyłącznie offline.** Mod zmienia działanie gry w pamięci — gra online grozi banem. Mod nie ma własnej blokady sieci; przed uruchomieniem przełącz Steama w tryb offline albo ustaw w grze start w trybie offline.
 - Na innej wersji `DarkSoulsRemastered.exe` hooki się nie założą i mechaniki z DLL nie będą działać (log: `bin\er_engine.log`).
 
+## Nowe w 0.5.3
+
+Wersja testowa (pre-release): poprawki sprawdzone w grze, ale mogą pojawić się błędy. Z przerobionych bossów paczka zawiera nadal tylko Artoriasa.
+
+- **Lądowanie po skoku jak w Elden Ringu.** Po skoku z biegu postać ląduje w bieg, a ze sprintu z trzymanym B w sprint, bez hamowania i bez rozpędzania od nowa. Po dłuższym spadaniu zostaje krótkie lądowanie (jak w ER). Wyłączenie: `LandToRun=0` w `bin\er_engine.ini`.
+- **Bez poślizgu** po lądowaniu, także po skoku z niższego miejsca na wyższe (schody, krawędź).
+- **Bez przeskoku rąk i broni w locie:** animacja skoku z ER gra do końca i przechodzi płynnie w pozę lotu z ER.
+- **Znane problemy:** przy lądowaniu po ataku z wyskoku poza przeskakuje (biodra i nogi w dół, przy katanie też ręce), poza R2 młota; poprawka w przygotowaniu.
+
 ## Nowe w 0.5.2
 
 Wersja testowa (pre-release): poprawki sprawdzone w grze, ale mogą pojawić się błędy. Z przerobionych bossów paczka zawiera nadal tylko Artoriasa.
