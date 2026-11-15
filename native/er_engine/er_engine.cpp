@@ -288,6 +288,7 @@ static bool g_momActive = false;        // rozped przejety (faza spadania po sko
 static int AirAttackSubstitute(void* ctx, int anim, int layer, int a6);  // nizej: atak w locie -> atak z wyskoku ER
 static void AirAttackTick(float dt);  // nizej: ladowanie w ataku z wyskoku
 static void AirAttackBuffer(BYTE* ctx);  // nizej: klik ataku przed otwarciem okna w skoku
+static void GroundSpeedSample();  // below: ground speed before a jump ([Jump] FallSpeedFromGround)
 static void PickupTick(void* p3);  // below: ends the upper-body pick-up copy ([Items] PickupWhileMoving)
 static BYTE* AnimLayerRecord(void* ctx, int layer);  // below (jump attack section): per-layer animation record
 static void AirAttackAfterPlayAnim(int anim, int layer);  // nizej: ladowanie po tym, jak gra konczy atak
@@ -457,6 +458,7 @@ static bool g_lockSprintFreeOn = false;  // er_engine.ini [Roll] LockOnSprintFre
 static bool g_landStartTimeOn = false;   // er_engine.ini [Jump] LandStartTime (jump attack section)
 static float g_landBlendSec = 0.f;       // [Jump] LandBlend (ms): swing -> landing pose blend, 0 = the game's 0.03 s
 static float g_landSpeedCap = 0.f;       // [Jump] LandSpeedCap (m/s): horizontal speed cap after touchdown, 0 = off
+static bool g_fallSpeedFromGround = false;  // [Jump] FallSpeedFromGround: fall momentum <= speed before the jump
 static float g_landEndBlendSec = -1.f;   // [Jump] LandEndBlend (ms): blend when the landing ends (-1 = the game's)
 static bool g_lockFreeForced = false;
 static BYTE g_lockFreeSaved = 0;
@@ -673,6 +675,8 @@ static void LoadConfigIni() {
     g_landStartTimeOn = GetPrivateProfileIntA("Jump", "LandStartTime", 0, iniPath) != 0;
     g_landBlendSec = GetPrivateProfileIntA("Jump", "LandBlend", 0, iniPath) / 1000.f;
     g_landSpeedCap = static_cast<float>(GetPrivateProfileIntA("Jump", "LandSpeedCap", 0, iniPath));
+    g_fallSpeedFromGround = GetPrivateProfileIntA("Jump", "FallSpeedFromGround", 0, iniPath) != 0;
+    Log("config: FallSpeedFromGround=%d", g_fallSpeedFromGround ? 1 : 0);
     {
         int ms = GetPrivateProfileIntA("Jump", "LandEndBlend", -1, iniPath);
         g_landEndBlendSec = ms < 0 ? -1.f : ms / 1000.f;
@@ -1312,6 +1316,7 @@ static void __fastcall InputDetour(void* ctx, float dt, void* p3) {
     __try {
         if (static_cast<BYTE*>(ctx)[0x1E4] == 1) { DWORD t = GetTickCount(); g_sprintSeenAt = t ? t : 1; }
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    GroundSpeedSample();
     SuppressSprintWhileDrinking(static_cast<BYTE*>(ctx));
     LockOnSprintPostInput(static_cast<BYTE*>(ctx), dt, p3);
     OmniRollPostInput(static_cast<BYTE*>(ctx), dt, p3);
@@ -1893,9 +1898,52 @@ static void SetMapHit(bool enabled) {
     }
 }
 
+// --- Ground speed before a jump ([Jump] FallSpeedFromGround, test 2026-11-15) ----------------------------
+// Player test 2026-11-14: after a sprint jump the model slides briefly without stepping, after a run jump it slows
+// down. Log (tools/jump_landing_stats.py): the fall momentum taken over from the last flight frame plus the stick
+// drift was 8.2 m/s for RUN jumps too (the ER jump clip carries ~7 m/s forward whatever the speed before), so the
+// character landed at twice the running speed, slid ~0.3 s and was then braked by the game to ~1.5 m/s before
+// running again. The horizontal speed on the ground is sampled every frame (position change over ~150 ms); with
+// the switch on the fall momentum is capped to that speed (x kFallSpeedMargin, at least the standing-jump drift).
+constexpr float kFallSpeedMargin = 1.10f;
+static float g_jumpGroundSpeed = -1.f;      // ground speed when the jump was requested (-1 = unknown)
+static DWORD g_gsT[16] = {};
+static float g_gsX[16] = {}, g_gsZ[16] = {};
+static int g_gsI = 0;
+
+static void GroundSpeedSample() {
+    BYTE* p = ChrPosData();
+    if (!p) return;
+    __try {
+        if (!p[0x32]) return;  // only on the ground
+        DWORD t = GetTickCount();
+        g_gsI = (g_gsI + 1) % 16;
+        g_gsT[g_gsI] = t ? t : 1;
+        g_gsX[g_gsI] = *reinterpret_cast<float*>(p + 0x10);
+        g_gsZ[g_gsI] = *reinterpret_cast<float*>(p + 0x18);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+static float GroundSpeedRecent() {
+    DWORD now = g_gsT[g_gsI];
+    if (!now || GetTickCount() - now > 100) return -1.f;  // no fresh ground sample (already airborne, menu)
+    for (int k = 1; k < 16; ++k) {
+        int j = (g_gsI - k + 16) % 16;
+        if (!g_gsT[j]) break;
+        DWORD dt = now - g_gsT[j];
+        if (dt >= 150) {
+            if (dt > 400) break;
+            return sqrtf((g_gsX[g_gsI] - g_gsX[j]) * (g_gsX[g_gsI] - g_gsX[j]) +
+                         (g_gsZ[g_gsI] - g_gsZ[j]) * (g_gsZ[g_gsI] - g_gsZ[j])) / (dt / 1000.f);
+        }
+    }
+    return -1.f;
+}
+
 static void AirControlOnPlayAnim(int anim, int layer) {
     if (layer != 7) return;
     if (anim == 900 || anim == 901 || anim == 902) {
+        g_jumpGroundSpeed = GroundSpeedRecent();
         g_airJumpAt = GetTickCount();
         g_physProbeAt = g_airJumpAt;
         g_airDrift = anim == 901 ? kAirDriftStand : kAirDriftMoving;
@@ -2601,6 +2649,17 @@ static void AirMomentumTick(float dt) {
                     g_mom[1] -= cosf(ang) * g_airDrift * mag;
                 }
                 float len = sqrtf(g_mom[0] * g_mom[0] + g_mom[1] * g_mom[1]);
+                if (g_fallSpeedFromGround && !g_momAtk && g_jumpGroundSpeed >= 0.f) {
+                    float cap = g_jumpGroundSpeed * kFallSpeedMargin;
+                    if (cap < kAirDriftStand) cap = kAirDriftStand;
+                    if (len > cap && len > 1e-3f) {
+                        Log("[%7lu ms] rozped: poziom %.2f -> %.2f m/s (predkosc przed skokiem %.2f)", now - g_t0, len, cap,
+                            g_jumpGroundSpeed);
+                        g_mom[0] *= cap / len;
+                        g_mom[1] *= cap / len;
+                        len = cap;
+                    }
+                }
                 g_momVmax = len > kAirDriftStand ? len : kAirDriftStand;
                 g_momVy = vy0 + g_momG * dt;  // nizej odejmujemy przed zapisem
                 g_momYCarry = true;
