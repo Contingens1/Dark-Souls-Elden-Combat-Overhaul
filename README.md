@@ -53,3 +53,9 @@ This is an unofficial, non-commercial, fan-made modification created for educati
 All original game assets, animations, names, and trademarks belong to **FromSoftware, Inc.** and **Bandai Namco Entertainment Inc.**
 
 To use this mod, you must legally own copies of the respective games (*Dark Souls: Remastered*, *Elden Ring* and *Elden Ring Nightreign*). Do not monetize, re-upload, or redistribute these files commercially.
+
+## Support the Project
+
+This mod is and will always remain 100% free and open-source. However, if you enjoy my work and want to support future updates, feel free to buy me a coffee:
+
+☕ **[Support on Buy Me a Coffee][![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/contingens)**
