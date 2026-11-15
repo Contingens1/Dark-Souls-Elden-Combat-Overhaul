@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sfbridge import load_soulsformats, read_binder, read_file, to_memory  # noqa: E402
 from tae_compare import DSAS, ER_ANI, template  # noqa: E402
 from er_land_settle import settle_ms  # noqa: E402
+from tae_wall_clang import cover_wall_clang  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CHR = ROOT / "dist/mods/c0000_er_engine/files/chr"
@@ -175,6 +176,7 @@ def main() -> int:
             p = bytearray(bytes(jt51.GetParameterBytes(False)))
             struct.pack_into("<i", p, 0, JT_DISABLE_FALL)
             clone.Events.Add(TAE.Event(0.0, end, jt51.Type, jt51.Unk04, Array[Byte](list(p)), False))
+            cover_wall_clang(clone, a1)  # no bounce off the ground for the whole hit (tools/tae_wall_clang.py)
             tae.Animations.Add(clone)
             swing_end = hit_end(list(er_anim.Events), ae) + SWING_AFTER_HIT
             print(f"  {g}: {new_id} = zdarzenia {src_id} przesuniete o {shift:+.2f} s (trafienie {d_hit:.2f} -> {e_hit:.2f}), koniec zamachu {swing_end:.2f} s, HKX {hkx.name}")
@@ -206,6 +208,8 @@ def main() -> int:
                         elif not with_hit and j is None:
                             continue  # bez trafienia: tylko zdarzenia JumpTable
                         land.Events.Add(TAE.Event(s, en, e.Type, e.Unk04, e.GetParameterBytes(False), False))
+                    if with_hit:
+                        cover_wall_clang(land, a1)
                     tae.Animations.Add(land)
                     added[container].append((int(gg) * 10000 + lid, land_hkx, f"{g}_{lid:04d}.hkx"))
                 idle_at = next((e.StartTime for e in er_ev if int(e.Type) == blend_idle and e.EndTime > 1e30), move_at + 0.3)

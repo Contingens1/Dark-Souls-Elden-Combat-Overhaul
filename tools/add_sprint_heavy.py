@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sfbridge import load_soulsformats, read_binder, read_file, to_memory  # noqa: E402
 from tae_compare import DSAS, ER_ANI, template  # noqa: E402
 from add_jump_attacks import CHR, GAME_CHR, ROOT, er_hkx, first_hit, type_id  # noqa: E402
+from tae_wall_clang import cover_wall_clang  # noqa: E402
 
 PAIRS = [(3300, 3320, 30210), (4300, 4320, 32210)]
 
@@ -79,6 +80,7 @@ def main(argv=None) -> int:
             for e in src.Events:
                 s, en = max(0.0, e.StartTime + shift), max(0.03, e.EndTime + shift)
                 clone.Events.Add(TAE.Event(s, en, e.Type, e.Unk04, e.GetParameterBytes(False), False))
+            cover_wall_clang(clone, a1)  # no bounce off the ground for the whole hit (tools/tae_wall_clang.py)
             tae.Animations.Add(clone)
             anims[new_id] = clone
             full = int(gg) * 10000 + new_id

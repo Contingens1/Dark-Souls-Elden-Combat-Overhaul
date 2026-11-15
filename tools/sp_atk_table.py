@@ -1,0 +1,112 @@
+"""Write native/er_engine/sp_atk_group_table.h: special attack category -> animation group, for the ER jump and
+sprint attacks of weapons with unique attacks (read only on game / mod data).
+
+A DSR weapon with EquipParamWeapon.spAtkcategory = SS plays the attacks its TAE aSS has (Great Club, SS 69:
+R2 = 693300 / 694300) and everything else from its group aGG (wepmotionCategory 35: R1 = 354000). The ER jump attacks
+(tools/add_jump_attacks.py) and sprint R2 (tools/add_sprint_heavy.py) exist per group, and er_engine.dll only knew
+groups 20-49, 90-99 and 120-149, so Great Club / Smough's Hammer had no jump or sprint R2 (player test 2026-11-15).
+A row allows a kind of attack only when every BehaviorParam_PC row its GG animations hit with
+(100000000 + behaviorVariationId * 1000 + judge) exists for every weapon of the category - otherwise the swing
+would deal no damage. Unique attacks mostly use the group's judges anyway (Great Club R2: 100/101, 300/301 as a35).
+
+  python tools\\sp_atk_table.py [--anibnd dist\\mods\\bossy_nightreign\\files_c0000_night\\chr\\c0000.anibnd.dcx]
+"""
+from __future__ import annotations
+
+import argparse
+import ntpath
+import struct
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sfbridge import load_soulsformats, read_binder, read_file  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent.parent
+GAME = Path(r"F:\SteamLibrary\steamapps\common\DARK SOULS REMASTERED")
+MOD_PARAM = ROOT / "dist/mods/c0000_er_engine/files/param/GameParam/GameParam.parambnd.dcx"
+NIGHT_ANI = ROOT / "dist/mods/bossy_nightreign/files_c0000_night/chr/c0000.anibnd.dcx"
+DEFS = Path(r"C:\Users\nemos\workspace\toolsy\Smithbox_2_2_6_2026_09_20_b\Assets\PARAM\DS1R\Defs")
+HDR = ROOT / "native/er_engine/sp_atk_group_table.h"
+# flag -> the group animations that kind of attack plays (swing and landing with a hit)
+KINDS = {1: ("jump R1", (3700, 3701, 4700, 4701)), 2: ("jump R2", (3710, 3711, 4710, 4711)),
+         4: ("sprint R2", (3320, 4320))}
+HIT_TYPES = {1, 5}
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--anibnd", type=Path, default=NIGHT_ANI, help="anibnd with the ER jump / sprint attacks")
+    ap.add_argument("--param", type=Path, default=MOD_PARAM if MOD_PARAM.exists() else
+                    GAME / "param/GameParam/GameParam.parambnd.dcx")
+    args = ap.parse_args(argv)
+    anibnd, param = str(args.anibnd.resolve()), str(args.param.resolve())
+    sf = load_soulsformats()
+    from SoulsFormats import TAE
+    pf = {ntpath.basename(str(f.Name)).lower(): f for f in read_binder(sf.BND3, param).Files}
+
+    def load(name, d):
+        p = read_file(sf.PARAM, pf[name.lower() + ".param"].Bytes)
+        p.ApplyParamdef(sf.PARAMDEF.XmlDeserialize(str(DEFS / f"{d}.xml"), False))
+        return p
+
+    weapons = load("EquipParamWeapon", "EquipParamWeapon")
+    behaviors = {int(r.ID) for r in load("BehaviorParam_PC", "BehaviorParam").Rows}
+    groups, variations = defaultdict(set), defaultdict(set)
+    for r in weapons.Rows:
+        sp = int(r["spAtkcategory"].Value)
+        if sp:
+            groups[sp].add(int(r["wepmotionCategory"].Value))
+            variations[sp].add(int(r["behaviorVariationId"].Value))
+
+    judges = {}  # (group, anim) -> judge ids of its hits
+    for tf in read_binder(sf.BND3, anibnd).Files:
+        n = ntpath.basename(str(tf.Name)).lower()
+        if not (n.endswith(".tae") and n[0] == "a" and n[1:-4].isdigit() and 20 <= int(n[1:-4]) < 50):
+            continue
+        g = int(n[1:-4])
+        for a in read_file(TAE, tf.Bytes).Animations:
+            js = {struct.unpack_from("<i", bytes(e.GetParameterBytes(False)), 8)[0]
+                  for e in a.Events if int(e.Type) in HIT_TYPES and len(bytes(e.GetParameterBytes(False))) >= 12}
+            if js:
+                judges[(g, int(a.ID))] = js
+
+    rows = []
+    for sp in sorted(groups):
+        gs = groups[sp]
+        if len(gs) != 1:
+            print(f"  a{sp}: weapons in several groups {sorted(gs)} - skipped")
+            continue
+        gg = next(iter(gs))
+        flags, notes = 0, []
+        for bit, (label, anims) in KINDS.items():
+            used = set().union(*[judges.get((gg, a), set()) for a in anims])
+            if not used:
+                continue  # the group has no such ER attack
+            missing = sorted({(v, j) for v in variations[sp] for j in used
+                              if 100000000 + v * 1000 + j not in behaviors})
+            if missing:
+                notes.append(f"{label}: no damage rows {missing[:4]}")
+            else:
+                flags |= bit
+        names = "+".join(label for bit, (label, _) in KINDS.items() if flags & bit) or "none"
+        print(f"  a{sp:<3} -> a{gg}: {names}{'  (' + '; '.join(notes) + ')' if notes else ''}")
+        rows.append((sp, gg, flags))
+
+    lines = ["// Generated by tools/sp_atk_table.py - do not edit by hand.", "#pragma once",
+             "// Weapons with a special attack category SS (EquipParamWeapon.spAtkcategory) request some attacks from",
+             "// TAE aSS (Great Club R2 = 693300) and the rest from their group GG (wepmotionCategory). The ER jump /",
+             "// sprint attacks exist per group: the DLL looks them up under GG. flags = kinds whose damage rows exist",
+             "// (BehaviorParam_PC) for every weapon of the category.",
+             "struct SpAtkGroupRow { unsigned short sp; unsigned char gg, flags; };",
+             "constexpr unsigned char kSpJumpR1 = 1, kSpJumpR2 = 2, kSpSprintR2 = 4;",
+             "static const SpAtkGroupRow kSpAtkGroups[] = {"]
+    lines += [f"    {{{sp}, {gg}, {fl}}}," for sp, gg, fl in rows] + ["    {0, 0, 0},", "};"]
+    HDR.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"OK ({len(rows)} categories) -> {HDR}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -2330,7 +2330,20 @@ static void AirAttackTick(float dt) {
 // FreeStaminaTick) is already down in the frame the R2 request arrives, so a sprint seen within kSprintHeavyMs
 // counts. Only on the ground, never during a jump (those R2 requests belong to the jump attacks).
 #include "sprint_heavy_table.h"  // tools/add_sprint_heavy.py
+#include "sp_atk_group_table.h"   // tools/sp_atk_table.py
 constexpr DWORD kSprintHeavyMs = 200;
+
+// Weapons with unique attacks (EquipParamWeapon.spAtkcategory, groups 50-199) request them from their own TAE
+// (Great Club R2 = 693300 / 694300, Smough's Hammer 70xxxx; player test 2026-11-15: no jump / sprint R2 for them).
+// The ER attacks exist per weapon group: the group the category belongs to, if that kind of attack keeps its damage
+// rows for every weapon of the category (kind = kSpJumpR1 / kSpJumpR2 / kSpSprintR2). -1 = category not in the table.
+static int SpAtkBaseGroup(int group, unsigned char kind) {
+    for (const auto& r : kSpAtkGroups) {
+        if (!r.sp) break;
+        if (r.sp == group) return (r.flags & kind) ? r.gg : 0;
+    }
+    return -1;
+}
 static int g_sprintSubFrom = 0, g_sprintSubTo = 0;
 static DWORD g_sprintSubAt = 0;
 
@@ -2339,9 +2352,13 @@ static int SprintHeavySubstitute(void* ctx, int anim, int layer) {
     if (layer == 23) return anim == g_sprintSubFrom && now - g_sprintSubAt < 100 ? g_sprintSubTo : anim;
     if (layer != 7 || ctx != g_playerAnimCtx || g_airJumpAt || !g_sprintSeenAt || now - g_sprintSeenAt > kSprintHeavyMs)
         return anim;
-    int id = anim % 10000;
+    int id = anim % 10000, base = anim / 10000;
     if (id != 3300 && id != 4300) return anim;
-    int to = anim + 20;
+    if (base >= 50) {
+        base = SpAtkBaseGroup(base, kSpSprintR2);
+        if (base <= 0) return anim;
+    }
+    int to = base * 10000 + id + 20;
     bool found = false;
     for (int r : kSprintHeavy) if (r == to) { found = true; break; }
     if (!found) return anim;
@@ -2375,10 +2392,9 @@ static int AirAttackSubstitute(void* ctx, int anim, int layer, int a6) {
         }
         AirAttackReset();
     }
-    // Grupy broni 20-49 oraz grupy specjalne 90-99 (katana: R2 oburacz w locie = 904300, test 2026-11-14) i 120-149
-    // (np. R2 topora gargulca = 1254300).
-    bool weapon = (anim >= 200000 && anim < 500000) || (anim >= 900000 && anim < 1000000) ||
-                  (anim >= 1200000 && anim < 1500000);
+    // Grupy broni 20-49 oraz grupy specjalne 50-199 (katana: R2 oburacz w locie = 904300, test 2026-11-14; R2 topora
+    // gargulca = 1254300; Great Club 694300, test 2026-11-15 - do 2026-11-15 tylko 90-99 i 120-149).
+    bool weapon = anim >= 200000 && anim < 2000000;
     if (!weapon || (layer != 7 && layer != 23)) return anim;
     if (layer == 7 && anim < 500000 && ctx == g_momCtx) g_lastBaseGroup = anim / 10000;  // zwykla grupa broni gracza
     if (layer == 23 && anim == g_airSubFrom && GetTickCount() - g_airSubAt < 100) return g_airSubTo;
@@ -2398,10 +2414,16 @@ static int AirAttackSubstitute(void* ctx, int anim, int layer, int a6) {
         case 4300: case 4310: to = 4710; break;
         default: return anim;
     }
-    // Wiersz tabeli: wlasna grupa; dla grupy specjalnej - ostatnia zwykla grupa gracza, potem grupa % 100.
+    // Wiersz tabeli: wlasna grupa; dla grupy specjalnej - grupa broni z sp_atk_group_table.h (0 = ten atak nie mialby
+    // obrazen: zwykly atak DSR); kategoria spoza tabeli - jak dawniej ostatnia zwykla grupa gracza.
     const JumpAttackRow* row = nullptr;
-    bool special = group >= 50;
-    for (int g : {group, special ? g_lastBaseGroup : 0, group >= 100 ? group % 100 : 0}) {
+    int base = 0;
+    if (group >= 50) {
+        base = SpAtkBaseGroup(group, (to == 3710 || to == 4710) ? kSpJumpR2 : kSpJumpR1);
+        if (base == 0) return anim;
+        if (base < 0) base = g_lastBaseGroup;
+    }
+    for (int g : {group, base}) {
         if (!g) continue;
         for (auto& r : kJumpAttacks) if (r.anim == g * 10000 + to) { row = &r; break; }
         if (row) break;
