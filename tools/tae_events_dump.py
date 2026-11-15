@@ -1,4 +1,4 @@
-"""Print the TAE events of chosen animations in a chr anibnd (read only).
+﻿"""Print the TAE events of chosen animations in a chr anibnd (read only).
 
   python tools/tae_events_dump.py <anibnd.dcx> 3007 3009 [--types 1 2 ...]
 """
@@ -23,8 +23,12 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     path = str(args.anibnd.resolve())
     load_soulsformats()
-    from SoulsFormats import BND3, TAE
-    for f in read_binder(BND3, path).Files:
+    from SoulsFormats import BND3, BND4, TAE
+    with open(path, "rb") as fh:
+        head = fh.read(64)
+    # DCX-compressed or plain: an Elden Ring / Nightreign binder is BND4
+    is4 = b"BND4" in head or "nuxe" in path.lower() or "nightreign" in path.lower()
+    for f in read_binder(BND4 if is4 else BND3, path).Files:
         name = ntpath.basename(str(f.Name)).lower()
         if not name.endswith(".tae") or (args.tae and name != f"{args.tae.lower()}.tae"):
             continue

@@ -139,6 +139,13 @@ def port_one(ctx, nr_id: int, dsr_id: int, out: Path) -> dict:
     eP, eRot = to_model_space(epar, eT, eQ)
     B = len(dnames)
     P, T, Q = np.zeros((F, B, 3)), np.zeros((F, B, 3)), np.zeros((F, B, 4))
+    # --keep-dsr-bones: unmapped DSR bones matching the pattern take their local motion from the DSR template clip
+    # (time-normalised to the new length) instead of the rest pose. Capra's tail (Omen Killer has none) stood
+    # straight out in every attack (player test 2026-11-14: "ogon w czasie atakow smiesznie wyprostowany").
+    keep_re = ctx.get("keep_dsr")
+    if keep_re:
+        kT, kQ = frames_to_arrays(dint.interleaved_data, list(dc.hkx_binding.transformTrackToBoneIndices), B, dref)
+        kidx = np.clip(np.round(np.linspace(0, kT.shape[0] - 1, F)).astype(int), 0, kT.shape[0] - 1)
     Rm: list = [None] * B
     pel = ctx["pelvis"]
     for b in range(B):
@@ -177,6 +184,10 @@ def port_one(ctx, nr_id: int, dsr_id: int, out: Path) -> dict:
                 P[:, b] = P[:, lp] + Rm[lp].apply(off) + S * eRot[a].apply(rel - rel0)
             T[:, b] = Rm[p].inv().apply(P[:, b] - P[:, p])
             Q[:, b] = (Rm[p].inv() * Rm[b]).as_quat()
+        elif keep_re and re.search(keep_re, dnames[b]):
+            T[:, b], Q[:, b] = kT[kidx, b], kQ[kidx, b]
+            P[:, b] = P[:, p] + Rm[p].apply(T[:, b])
+            Rm[b] = Rm[p] * R.from_quat(Q[:, b])
         else:
             T[:, b], Q[:, b] = dref[0][b], dref[1][b]
             P[:, b] = P[:, p] + Rm[p].apply(T[:, b])
@@ -496,6 +507,8 @@ def main(argv=None) -> int:
     ap.add_argument("--align-rest", type=float, default=0.0, metavar="MIN_DEG",
                     help="port: turn DSR bones whose rest direction differs from the NR one by >= MIN_DEG onto the NR "
                          "rest pose first (player: DSR T-pose vs ER A-pose); 0 = off")
+    ap.add_argument("--keep-dsr-bones", metavar="REGEX",
+                    help="port: unmapped DSR bones matching REGEX move as in the DSR template clip (e.g. ^Tail)")
     args = ap.parse_args(argv)
 
     load_havok()
@@ -574,6 +587,10 @@ def main(argv=None) -> int:
     if args.align_rest > 0:
         ctx["dRa"], fixed = align_rest(dnames, dpar, epar, d2e, e2d, dPr, dRr, ePr, args.align_rest)
         say(f"rest pose aligned to NR (>= {args.align_rest:.0f} deg, bone deg): " + (", ".join(fixed) or "none"))
+    if args.keep_dsr_bones:
+        ctx["keep_dsr"] = args.keep_dsr_bones
+        say("unmapped bones moved as in the DSR template clip: " +
+            ", ".join(n for i, n in enumerate(dnames) if i not in d2e and re.search(args.keep_dsr_bones, n)))
     for s in args.scale_zero:
         nid, bone, t0, t1 = s.split(":")
         ctx["scale_zero"].setdefault(int(nid), []).append((bone, float(t0), float(t1)))
