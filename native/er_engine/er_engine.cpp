@@ -277,6 +277,7 @@ static void AirMomentumTick(float dt);  // nizej, rozped w spadaniu po skoku
 static void AirMomentumStart(int anim);
 static void AirMomentumOnOtherAnim();
 static void* g_momCtx = nullptr;        // ctx i a6 zlecenia skoku - do zakonczenia animacji
+static DWORD g_sprintSeenAt = 0;        // last input frame with the sprint flag (+0x1E4) on (SprintHeavySubstitute)
 static int g_momA6 = 0;
 static float PhysF(const BYTE* ph, int off);
 static DWORD g_physProbeAt = 0;        // start sondy fizyki (GetTickCount() zlecenia skoku)
@@ -287,7 +288,7 @@ static bool g_momActive = false;        // rozped przejety (faza spadania po sko
 static int AirAttackSubstitute(void* ctx, int anim, int layer, int a6);  // nizej: atak w locie -> atak z wyskoku ER
 static void AirAttackTick(float dt);  // nizej: ladowanie w ataku z wyskoku
 static void AirAttackBuffer(BYTE* ctx);  // nizej: klik ataku przed otwarciem okna w skoku
-static void PickupTick();  // below: ends the upper-body pick-up copy ([Items] PickupWhileMoving)
+static void PickupTick(void* p3);  // below: ends the upper-body pick-up copy ([Items] PickupWhileMoving)
 static BYTE* AnimLayerRecord(void* ctx, int layer);  // below (jump attack section): per-layer animation record
 static void AirAttackAfterPlayAnim(int anim, int layer);  // nizej: ladowanie po tym, jak gra konczy atak
 static bool g_airAtkMoveLock = false;   // recovery po ladowaniu ataku z wyskoku: osie ruchu = 0
@@ -1308,6 +1309,9 @@ static void __fastcall InputDetour(void* ctx, float dt, void* p3) {
     LockOnSprintFreePre(static_cast<BYTE*>(ctx), p3);
     g_origInput(ctx, dt, p3);
     g_fakeRollPress = false;
+    __try {
+        if (static_cast<BYTE*>(ctx)[0x1E4] == 1) { DWORD t = GetTickCount(); g_sprintSeenAt = t ? t : 1; }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
     SuppressSprintWhileDrinking(static_cast<BYTE*>(ctx));
     LockOnSprintPostInput(static_cast<BYTE*>(ctx), dt, p3);
     OmniRollPostInput(static_cast<BYTE*>(ctx), dt, p3);
@@ -1318,7 +1322,7 @@ static void __fastcall InputDetour(void* ctx, float dt, void* p3) {
     ArtoriasPhaseTick(p3);
     HangRepairTick(p3);
     AttackSpeedTick(dt);
-    PickupTick();
+    PickupTick(p3);
     AirControlTick(dt);
     AirMomentumTick(dt);
     if (kDiag) { PhysProbeTick(); EnemyProbeTick(); HangProbeTick(static_cast<const BYTE*>(ctx), p3); }
@@ -1671,15 +1675,49 @@ static void PickupEndUpper(const char* why) {
 // to the file 3 s later by itself (ER_DIAG builds), no F8 needed.
 static DWORD g_pickupDumpAt = 0;
 
-static void PickupTick() {
+// FIX 2026-11-14 (player report: loot picked up while sprinting could not be picked up at all, log 17:0x):
+// after a redirected pick-up the action controller's flag word ActionCtrl+0x1DC stays 0 - the pick-up state
+// never sees its layer 10 animation end, so the free-movement bit 0x100000 does not come back (18 s in the log,
+// until an Estus, a roll, a hit or the hang repair). The player can still walk, but every later pick-up is ended
+// by the game in the same frame without entering the pick-up state, so the item stays on the ground; once the bit
+// was back (hang repair / another animation), the next pick-up worked again. Same log, other session: the stuck
+// word also froze the player after a pick-up (hang repair at 63 ms). When the game has ended the pick-up and the
+// upper-body copy is over, the bit is set back as the hang repair does - only if the word is exactly 0 (stuck
+// pick-up state) and nothing else owns the body (no layer 7 / hit / item animation, no other layer 10 request
+// such as the fog wall since the pick-up began).
+static bool g_pickupGameEnded = false;  // the game ended the current redirected pick-up (layer 10 -1)
+static bool g_pickupForeign = false;    // another layer 10/25 request since the pick-up began: leave the flag alone
+
+static void PickupRestoreMoveFlag(void* p3) {
+    bool ended = g_pickupGameEnded;
+    g_pickupGameEnded = false;  // one attempt per pick-up
+    if (!ended || g_pickupForeign || g_mainAnim != -1 || g_playerDmgAnim != -1 || g_itemUpperAnim != -1 || !p3) return;
+    __try {
+        BYTE* action = *reinterpret_cast<BYTE**>(static_cast<BYTE*>(p3) + 0x48);
+        if (reinterpret_cast<ULONG_PTR>(action) < 0x10000) return;
+        DWORD* word = reinterpret_cast<DWORD*>(action + 0x1DC);
+        if (*word != 0) return;
+        *word = 0x100000;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return;
+    }
+    Log("[%7lu ms] pickup: move flag ActionCtrl+0x1DC 00000000 -> 00100000 (pick-up state left)", GetTickCount() - g_t0);
+}
+
+static void PickupTick(void* p3) {
     if (g_pickupDumpAt && GetTickCount() >= g_pickupDumpAt) {
         g_pickupDumpAt = 0;
         LogAutoDump("pickup", true);
     }
     if (!g_pickupOnUpper) return;
     DWORD now = GetTickCount();
-    if (g_pickupEndAt && now >= g_pickupEndAt) PickupEndUpper("game ended the pick-up");
-    else if (now - g_pickupAt >= kPickupMaxMs) PickupEndUpper("time limit");
+    if (g_pickupEndAt && now >= g_pickupEndAt) {
+        PickupEndUpper("game ended the pick-up");
+        PickupRestoreMoveFlag(p3);
+    } else if (now - g_pickupAt >= kPickupMaxMs) {
+        PickupEndUpper("time limit");
+        PickupRestoreMoveFlag(p3);
+    }
 }
 
 // Returns true when the request was replaced (the caller returns without playing the original).
@@ -1699,6 +1737,8 @@ static bool PickupOnPlayAnim(void* ctx, void* out, int a3, int a4, char a5, int 
             g_pickupOnUpper = true;
             g_pickupAt = now ? now : 1;
             g_pickupEndAt = 0;
+            g_pickupGameEnded = false;
+            g_pickupForeign = false;
             g_pickupCtx = ctx;
             g_pickupOut = out;
             g_pickupA5 = a5;
@@ -1710,9 +1750,11 @@ static bool PickupOnPlayAnim(void* ctx, void* out, int a3, int a4, char a5, int 
         return true;
     }
     if (!g_pickupOnUpper) return false;
+    if (a3 >= 0 && (a4 == 10 || a4 == 25)) g_pickupForeign = true;  // fog wall / event animation took the body
     if (a3 == -1 && a4 == 10) {  // the game ends the pick-up: keep the copy at least kPickupMinMs
         DWORD due = g_pickupAt + kPickupMinMs;
         g_pickupEndAt = now >= due ? now : due;
+        g_pickupGameEnded = true;
         Log("[%7lu ms] pickup: game ended the pick-up after %lu ms", now - g_t0, now - g_pickupAt);
     } else if (a3 >= 0 && (a4 == 7 || a4 == 11)) {
         PickupEndUpper(a4 == 7 ? "new action" : "hit");
@@ -2223,6 +2265,41 @@ static void AirAttackTick(float dt) {
     AirAttackBeginLand(t, true);  // start the landing in this tick (v2.4-v2.7 passed false: 60 ms of waiting)
 }
 
+// --- Sprint heavy attack (ER dash heavy, R2 while sprinting; player test 2026-11-14) -----------------------
+// DS1 has no sprint R2: the player stops and plays the plain R2 (GG3300 / GG4300). Elden Ring has a dash heavy
+// (hammers: a spinning swing). tools/add_sprint_heavy.py adds it as GG3320 / GG4320 (ER clip, DSR R2 events shifted
+// to ER's hit time) and lists them in sprint_heavy_table.h. The game's sprint flag (input ctx +0x1E4, see
+// FreeStaminaTick) is already down in the frame the R2 request arrives, so a sprint seen within kSprintHeavyMs
+// counts. Only on the ground, never during a jump (those R2 requests belong to the jump attacks).
+#include "sprint_heavy_table.h"  // tools/add_sprint_heavy.py
+constexpr DWORD kSprintHeavyMs = 200;
+static int g_sprintSubFrom = 0, g_sprintSubTo = 0;
+static DWORD g_sprintSubAt = 0;
+
+static int SprintHeavySubstitute(void* ctx, int anim, int layer) {
+    DWORD now = GetTickCount();
+    if (layer == 23) return anim == g_sprintSubFrom && now - g_sprintSubAt < 100 ? g_sprintSubTo : anim;
+    if (layer != 7 || ctx != g_playerAnimCtx || g_airJumpAt || !g_sprintSeenAt || now - g_sprintSeenAt > kSprintHeavyMs)
+        return anim;
+    int id = anim % 10000;
+    if (id != 3300 && id != 4300) return anim;
+    int to = anim + 20;
+    bool found = false;
+    for (int r : kSprintHeavy) if (r == to) { found = true; break; }
+    if (!found) return anim;
+    if (BYTE* p = ChrPosData()) {
+        bool ground = false;
+        __try { ground = p[0x32] != 0; } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        if (!ground) return anim;
+    }
+    Log("[%7lu ms] sprint heavy: %d -> %d (sprint seen %lu ms before)", now - g_t0, anim, to, now - g_sprintSeenAt);
+    g_sprintSubFrom = anim;
+    g_sprintSubTo = to;
+    g_sprintSubAt = now ? now : 1;
+    g_sprintSeenAt = 0;
+    return to;
+}
+
 static int AirAttackSubstitute(void* ctx, int anim, int layer, int a6) {
     // Kazde zlecenie gry na warstwie 7 (inna akcja, trafienie, koniec animacji) konczy nasz stan;
     // nasze wlasne zlecenia ida przez g_origPlayAnim i tu nie trafiaja.
@@ -2247,6 +2324,10 @@ static int AirAttackSubstitute(void* ctx, int anim, int layer, int a6) {
     if (!weapon || (layer != 7 && layer != 23)) return anim;
     if (layer == 7 && anim < 500000 && ctx == g_momCtx) g_lastBaseGroup = anim / 10000;  // zwykla grupa broni gracza
     if (layer == 23 && anim == g_airSubFrom && GetTickCount() - g_airSubAt < 100) return g_airSubTo;
+    {
+        int s = SprintHeavySubstitute(ctx, anim, layer);
+        if (s != anim) return s;
+    }
     if (layer != 7 || !g_airJumpAt) return anim;
     DWORD t = GetTickCount() - g_airJumpAt;
     if (t < kAirAttackFromMs || t > kAirAttackToMs) return anim;

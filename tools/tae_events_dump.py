@@ -19,13 +19,14 @@ def main(argv=None) -> int:
     ap.add_argument("anibnd", type=Path)
     ap.add_argument("ids", type=int, nargs="+")
     ap.add_argument("--types", type=int, nargs="*", default=[])
+    ap.add_argument("--tae", help="only this TAE, e.g. a33")
     args = ap.parse_args(argv)
     path = str(args.anibnd.resolve())
     load_soulsformats()
     from SoulsFormats import BND3, TAE
     for f in read_binder(BND3, path).Files:
         name = ntpath.basename(str(f.Name)).lower()
-        if not name.endswith(".tae"):
+        if not name.endswith(".tae") or (args.tae and name != f"{args.tae.lower()}.tae"):
             continue
         tae = read_file(TAE, f.Bytes)
         for a in tae.Animations:
