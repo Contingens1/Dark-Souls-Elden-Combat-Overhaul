@@ -44,6 +44,19 @@ Aktualizacja zmienia wyłącznie pliki w folderze moda — nie dotyka gry ani Mo
 - **Graj wyłącznie offline.** Mod zmienia działanie gry w pamięci — gra online grozi banem. Mod nie ma własnej blokady sieci; przed uruchomieniem przełącz Steama w tryb offline albo ustaw w grze start w trybie offline.
 - Na innej wersji `DarkSoulsRemastered.exe` hooki się nie założą i mechaniki z DLL nie będą działać (log: `bin\er_engine.log`).
 
+## Nowe w 0.5.2
+
+Wersja testowa (pre-release): poprawki sprawdzone w grze, ale mogą pojawić się błędy. Z przerobionych bossów paczka zawiera nadal tylko Artoriasa.
+
+- **Podnoszenie przedmiotów w marszu: naprawiony błąd z 0.5.1.** Po podniesieniu w ruchu kolejne przedmioty potrafiły zostawać na ziemi, a postać czasem stawała w miejscu.
+- **R2 ze sprintu** (młoty i wielkie młoty, jedną ręką i oburącz): atak z biegu jak w Elden Ringu, zamiast zatrzymania i zwykłego R2.
+- **Bronie z unikalnymi atakami** (np. Great Club, Smough's Hammer, Grant, Large Club, Claymore, Moonlight Greatsword):
+  - mają ataki z wyskoku swojej grupy broni z ER (młoty także R2 ze sprintu); wcześniej R2 z wyskoku nie działało;
+  - ich unikalne ataki zachowują się w tym samym tempie co reszta broni (dopasowanym do ER); wcześniej miały tempo z DSR.
+- **Ataki z wyskoku i R2 ze sprintu nie odbijają się od terenu**, także przy skoku pod górę. Broń może przy tym wejść w ziemię, jak w Elden Ringu.
+- Przedmiot, którego masz już maksymalną liczbę (np. 99 mchów), zostaje na ziemi bez komunikatu. Tak działa sama gra.
+- **Znane problemy:** przy lądowaniu po R1 postać jest jeszcze ściągana w dół; po skoku ze sprintu model lekko się ślizga, a po skoku z biegu postać lekko wyhamowuje.
+
 ## Nowe w 0.5.1
 
 Wersja testowa (pre-release): poprawki sprawdzone w grze, ale mogą pojawić się błędy. Z przerobionych bossów paczka zawiera nadal tylko Artoriasa.
