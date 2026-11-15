@@ -31,7 +31,7 @@ Mod jest w trakcie rozwoju. Poniżej to, co jest znane i jeszcze nie działa jak
 * **Ataki z wyskoku są niedopracowane.** Przy lądowaniu po atakach w skoku zdarzają się migotania i skoki animacji. Nie wszystkie bronie mają jeszcze pełny zestaw ataków z wyskoku, np. katana i zwykły atak toporem korzystają z zastępczych animacji, a pięści nie mają ataków z wyskoku. R2 ze sprintu i z wyskoku może wchodzić w teren, bo tak samo robi ER.
 * **Sterowność w dłuższym skoku** — poprawka jest w przygotowaniu i wejdzie w najbliższym wydaniu.
 * **Skok przez ścianę (zamierzone, na razie zostaje).** Skok można zacząć przy ścianie i przeniknąć przez nią. Pozwala to na ciekawe skipy, więc na razie nie jest blokowane.
-* **Blok tarczą w sprincie wygląda śmiesznie (zamierzone, na razie zostaje).** Animacja sprintu z ER jest na górnej części ciała, co wygląda nienaturalnie.
+* **Blok bronią w sprincie wygląda śmiesznie (zamierzone, na razie zostaje).** Animacja sprintu z ER jest na górnej części ciała, co wygląda nienaturalnie.
 * **Kamera przy namierzeniu:** moby i otoczenie potrafią zasłaniać kamerę, a kamera czasem sama mocno unosi się w górę. Jest to w planie poprawek.
 * **Sprint przy namierzeniu działa tylko w przód**, tak jak w oryginale. Sprint w bok i w tył z ER jest w planie.
 * **Zawieszenie postaci (rzadkie):** po przewrocie postać może przez kilka sekund stać bez animacji, mimo że gałka jest wychylona. Kończy się to zwykle trafieniem albo kolejnym przewrotem. Przyczyna nie jest jeszcze znana. Paczka ma automatyczną próbę odblokowania, która może nie zadziałać.
