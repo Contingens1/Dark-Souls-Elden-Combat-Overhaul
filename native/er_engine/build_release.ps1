@@ -118,6 +118,7 @@ $readme = [IO.File]::ReadAllText("$PSScriptRoot\README_release.md", [Text.Encodi
 [IO.File]::WriteAllText("$out\README.md", $readme, $utf8Bom)
 $readmeEn = [IO.File]::ReadAllText("$PSScriptRoot\README_release_en.md", [Text.Encoding]::UTF8).Replace('{VERSION}', $Version)
 [IO.File]::WriteAllText("$out\README_en.md", $readmeEn, $utf8Bom)
+Copy-Item "$root\LICENSE" "$out\LICENSE.txt"
 
 # 5. Archive (with the top-level folder inside, so extracting gives one folder).
 $zip = Join-Path $root "dist\release\$name.zip"
