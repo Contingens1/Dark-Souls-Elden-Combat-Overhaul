@@ -52,12 +52,12 @@ Stan: 2026-11-15 wieczór, po teście gracza (skok, bronie unikalne, Gwyn). **To
 
 ## Decyzje bez gry
 
-- **Wstawanie po powaleniu** (analiza 15.11): pierwszy unik i ruch są w DSR w tych samych chwilach co w ER (np. powalenie: unik od 3,57 s, ruch od 3,70 s). Różnice: w klipach ER postać wstaje wizualnie ~0,3 s wcześniej (po ogniu smoka 0,8 s), a nietykalność na ziemi jest w ER krótsza (2,3 s zamiast 3,6 s). Propozycja: podmienić klipy powalenia na ER, z oknami DSR (to samo sterowanie, wygląd ER).
 - **Gwyn, faza 2** (gracz 15.11: „jak najbardziej za”): nowe ataki SoC 3022–3032 (pociski, wielki atak, kombinacja z wybuchem). Wymagają wspólnej paczki GameParam. Kolejność: najpierw skoki, potem plan fazy 2.
 - **Postura i cios krytyczny po przełamaniu** (jak w ER): czy zaczynamy od Black Knighta? Wynik analizy: animacja 2100 Black Knighta ma w TAE zdarzenia JumpTable 41 i typ 67, których zwykłe animacje nie mają. Hipoteza: „można wykonać ripostę”. Test: przełącznik w nocnej DLL, który po kilku trafieniach zleca 2100 najbliższemu Black Knightowi.
 
 ## Zaliczone ostatnio
 
+- 15.11 (decyzja): wstawanie po powaleniu zostaje jak w DSR. Pierwszy unik i ruch są w tych samych chwilach co w ER; ER różni się tylko wyglądem (postać wstaje ~0,3 s wcześniej) i krótszą nietykalnością na ziemi.
 - 15.11 (po południu): bronie z unikalnym zestawem ruchów (Quelaag's Furysword, Dark Silver Tracer). Zwykłe ataki zostają unikalne, dodane (z wyskoku, ze sprintu) są z grupy broni, atak po przewrocie dobry. Atak z biegu Dark Silver Tracer wygląda jak R2: to oryginał DS1 (w DSR to sztylet, grupa 20; klip `a20_4500` jest taki sam w plikach gry). R2 ze sprintu w stylu ER mają na razie tylko młoty (grupy 33 i 35).
 - 15.11 (weszło do 0.5.2): podnoszenie przedmiotów; R2 ze sprintu młotów; R2 z wyskoku i ze sprintu Great Club i Smough's Hammer; brak odbijania od terenu; tempo ataków unikalnych.
 - 14.11: Estus chowa broń; podnoszenie w marszu; ataki z wyskoku katany i pięści; osłona przed zawieszeniem po wczytaniu.
