@@ -370,6 +370,48 @@ static bool IsLockedOnRollable(const BYTE* ctx, void* p3) {
     }
 }
 
+// --- Stick -> world direction without the game's move vector ([Jump] AirTurnSpeed) ----------------------------------
+// In the air the game may not fill the input ctx move vector (+0x10/+0x18; first air-turn test 2026-11-15: not one
+// turn logged). The camera term of the mapping is kept from ground frames, where both the stick (g_axis) and the
+// world vector are known: rotation (world yaw = c + atan2(ax, ay)) or mirror (world yaw = c - atan2(ax, ay)); the roll
+// log fits the mirror better (median 43 vs 91 deg over pairs up to 3 s apart), so each frame with the stick turning
+// and the camera still decides which candidate stays constant.
+static float g_stickCamRot = 0.f, g_stickCamMir = 0.f, g_stickPrevAng = 0.f;
+static float g_stickErrRot = 0.f, g_stickErrMir = 0.f;
+static bool g_stickCamOk = false;
+static DWORD g_stickCamAt = 0;
+static float WrapPi(float a) {
+    while (a > 3.14159265f) a -= 6.2831853f;
+    while (a < -3.14159265f) a += 6.2831853f;
+    return a;
+}
+static void StickCameraSample(float wx, float wz) {
+    BYTE* ph = ChrPosData();
+    float am2 = g_axis[0] * g_axis[0] + g_axis[1] * g_axis[1];
+    if (!ph || wx * wx + wz * wz < 0.25f || am2 < 0.25f) return;
+    __try { if (!ph[0x32]) return; } __except (EXCEPTION_EXECUTE_HANDLER) { return; }  // ground frames only
+    float s = atan2f(g_axis[0], g_axis[1]), w = atan2f(-wx, -wz);
+    float rot = WrapPi(w - s), mir = WrapPi(w + s);
+    DWORD now = GetTickCount();
+    if (g_stickCamOk && now - g_stickCamAt < 100 && fabsf(WrapPi(s - g_stickPrevAng)) > 0.05f) {
+        g_stickErrRot = g_stickErrRot * 0.98f + fabsf(WrapPi(rot - g_stickCamRot));
+        g_stickErrMir = g_stickErrMir * 0.98f + fabsf(WrapPi(mir - g_stickCamMir));
+    }
+    g_stickCamRot = rot;
+    g_stickCamMir = mir;
+    g_stickPrevAng = s;
+    g_stickCamAt = now;
+    g_stickCamOk = true;
+}
+static bool StickWorldYaw(float* yaw, const char** how) {
+    if (!g_stickCamOk) return false;
+    float s = atan2f(g_axis[0], g_axis[1]);
+    bool mirror = g_stickErrMir <= g_stickErrRot;
+    *yaw = mirror ? WrapPi(g_stickCamMir - s) : WrapPi(g_stickCamRot + s);
+    *how = mirror ? "stick + camera (mirror)" : "stick + camera (rotation)";
+    return true;
+}
+
 static void OmniApplyYawNow(float yaw) {
     if (BYTE* pos = ChrPosData()) {
         __try {
@@ -556,6 +598,7 @@ static void OmniRollPostInput(BYTE* ctx, float dt, void* p3) {
     float wx = *reinterpret_cast<const float*>(ctx + 0x10);
     float wz = *reinterpret_cast<const float*>(ctx + 0x18);
     float wlen2 = wx * wx + wz * wz;
+    StickCameraSample(wx, wz);
     if (wlen2 > 0.01f) {
         g_omniLastStickYaw = atan2f(-wx, -wz);
         g_omniLastStickAt = now ? now : 1;
@@ -2733,31 +2776,45 @@ static void AirMomentumOnOtherAnim() { g_momAnimOn = false; }
 
 // [Jump] AirTurnSpeed: one step of the in-air turn toward the stick (yaw at ChrPosData +0x4, written as OmniApplyYawNow
 // does; forward = (-sin, -cos), so the stick's world vector (wx, wz) at input ctx +0x10 / +0x18 is yaw atan2(-wx, -wz)).
+// The target is the input ctx vector when the game fills it, else the stick mapped with the camera term kept from the
+// ground (StickWorldYaw). The diag build logs every 250 ms of the turn both sources, so the next test shows which one
+// works in the air and whether the game keeps the written yaw.
 static DWORD g_airTurnLogAt = 0;
 static void AirTurnToStick(BYTE* ph, float dt) {
-    BYTE* in = g_inputCtx;
-    if (!in || dt <= 0.f || dt > 0.1f) return;
-    constexpr float kTwoPi = 6.2831853f, kPiF = 3.14159265f;
+    if (dt <= 0.f || dt > 0.1f) return;
     __try {
-        float wx = *reinterpret_cast<const float*>(in + 0x10), wz = *reinterpret_cast<const float*>(in + 0x18);
-        if (wx * wx + wz * wz < 0.01f) return;
-        float want = atan2f(-wx, -wz);
-        float cur = *reinterpret_cast<const float*>(ph + 0x4);
-        float d = want - cur;
-        while (d > kPiF) d -= kTwoPi;
-        while (d < -kPiF) d += kTwoPi;
-        float step = g_airTurnSpeed * (kPiF / 180.f) * dt;
-        float turn = d > step ? step : d < -step ? -step : d;
-        float y = cur + turn;
-        if (y > kPiF) y -= kTwoPi;
-        else if (y < -kPiF) y += kTwoPi;
-        *reinterpret_cast<float*>(ph + 0x4) = y;
-        DWORD now = GetTickCount();
-        if (kDiag && fabsf(d) > 0.05f && now - g_airTurnLogAt > 250) {
-            g_airTurnLogAt = now;
-            Log("[%7lu ms] rozped: obrot w powietrzu %.2f -> %.2f rad (galka %.2f, zostalo %.0f deg)", now - g_t0, cur, y, want,
-                fabsf(d - turn) * 180.f / kPiF);
+        float wx = 0.f, wz = 0.f;
+        if (BYTE* in = g_inputCtx) {
+            wx = *reinterpret_cast<const float*>(in + 0x10);
+            wz = *reinterpret_cast<const float*>(in + 0x18);
         }
+        float mapped = 0.f;
+        const char* mapHow = "none";
+        bool mapOk = StickWorldYaw(&mapped, &mapHow);
+        float want;
+        const char* how;
+        if (wx * wx + wz * wz >= 0.01f) { want = atan2f(-wx, -wz); how = "input ctx"; }
+        else if (mapOk) { want = mapped; how = mapHow; }
+        else want = 0.f, how = nullptr;
+        DWORD now = GetTickCount();
+        bool logNow = kDiag && now - g_airTurnLogAt > 250;
+        if (logNow) g_airTurnLogAt = now;
+        float cur = *reinterpret_cast<const float*>(ph + 0x4);
+        if (!how) {
+            if (logNow)
+                Log("[%7lu ms] rozped: obrot w powietrzu - brak kierunku (wektor gry %.2f %.2f, osie %.2f %.2f, kamera nieznana)",
+                    now - g_t0, wx, wz, g_axis[0], g_axis[1]);
+            return;
+        }
+        float d = WrapPi(want - cur);
+        float step = g_airTurnSpeed * (3.14159265f / 180.f) * dt;
+        float turn = d > step ? step : d < -step ? -step : d;
+        float y = WrapPi(cur + turn);
+        *reinterpret_cast<float*>(ph + 0x4) = y;
+        if (logNow)
+            Log("[%7lu ms] rozped: obrot w powietrzu %.2f -> %.2f rad, cel %.2f (%s; wektor gry %.2f %.2f, mapa %.2f %s, osie %.2f %.2f), "
+                "zostalo %.0f deg, ped %.2f %.2f", now - g_t0, cur, y, want, how, wx, wz, mapped, mapOk ? "" : "(brak)", g_axis[0],
+                g_axis[1], fabsf(WrapPi(d - turn)) * 57.29578f, g_mom[0], g_mom[1]);
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
