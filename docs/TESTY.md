@@ -1,13 +1,13 @@
 # Testy do zrobienia
 
-Stan: 2026-11-15 noc, po teście bossów; paczka nocna ma poprawkę lądowania ataków z wyskoku. **To jedyna aktualna lista testów.** Po każdym teście poprawiam ten plik.
+Stan: 2026-11-15 noc, po teście bossów; paczka nocna ma poprawkę lądowania ataków z wyskoku i sterowanie w powietrzu przy skoku w dół. **To jedyna aktualna lista testów.** Po każdym teście poprawiam ten plik.
 
 ## Jak uruchomić
 
 - **Prawie wszystko:** `dist\mods\bossy_nightreign\launch_test_all.bat`.
-  - DLL ma to samo co wydanie 0.5.3, plus diagnostykę, F8 i poprawkę z punktu 1.
+  - DLL ma to samo co wydanie 0.5.3, plus diagnostykę, F8 i poprawki z punktów 1 i 2.
   - Zawiera wszystkich przerobionych bossów: Artoriasa, Capra, Gaping, Centipede, Stray i Gwyna.
-- **Wyjątek, punkt 4 (Centipede):** `dist\mods\c0000_er_engine\launch_er_engine.bat` (sam mod, bez bossów).
+- **Wyjątek, punkt 5 (Centipede):** `dist\mods\c0000_er_engine\launch_er_engine.bat` (sam mod, bez bossów).
 - Gdy coś jest nie tak: **F8** od razu (zapisuje log). W wiadomości napisz mniej więcej godzinę.
 
 ## Do przetestowania
@@ -20,16 +20,20 @@ Stan: 2026-11-15 noc, po teście bossów; paczka nocna ma poprawkę lądowania a
    - Przy okazji: włócznia (tam różnica rąk jest największa).
    - F8 po kilku próbach.
    - Skok w dół z atakiem (z krawędzi) jeszcze nie jest poprawiony.
-2. **Skok, przy okazji** (skok jest zaliczony i jest w 0.5.3; tych przypadków log jeszcze nie obejmował):
+2. **Skok w dół: sterowanie w powietrzu** (nowe 15.11 w nocy). Po końcu animacji skoku postać obraca się w powietrzu do kierunku gałki, wolno jak w ER (60°/s, czyli pół obrotu w 3 s), a lot idzie za nią.
+   - Daleki skok w dół (kilka metrów): czy gałka działa przez cały lot, także pod koniec.
+   - Czy skręt nie jest za wolny ani za szybki i czy nie wygląda dziwnie (obrót w miejscu, szarpnięcie).
+   - Skok po płaskim i w górę ma działać jak dotąd.
+3. **Skok, przy okazji** (skok jest zaliczony i jest w 0.5.3; tych przypadków log jeszcze nie obejmował):
    - skok z miejsca;
    - skok z marszu (wolno, gałka lekko wychylona);
    - zaraz po lądowaniu: puszczenie gałki, unik, atak;
    - skok z bronią oburącz i z uniesioną tarczą.
-3. **Gwyn** (Kiln of the First Flame), ruchy z Soul of Cinder z DS3. Test 15.11: miecz, płaszcz i ciosy wyglądają dobrze. Zostało:
+4. **Gwyn** (Kiln of the First Flame), ruchy z Soul of Cinder z DS3. Test 15.11: miecz, płaszcz i ciosy wyglądają dobrze. Zostało:
    - chwyt i rzut działają jak wcześniej;
    - (przy okazji) włosy i broda.
    - Różnic względem DS1 prawie nie widać i tak ma być: druga faza SoC to te same ataki Gwyna w odświeżonych animacjach. Log walki potwierdza nowe AI (kombinacja 3000 → 3011 z SoC). Prawdziwie nowe ruchy to faza 2 (decyzja niżej).
-4. **Centipede Demon: test rozstrzygający** (Demon Ruins), z `launch_er_engine.bat`, **bez paczek bossów**.
+5. **Centipede Demon: test rozstrzygający** (Demon Ruins), z `launch_er_engine.bat`, **bez paczek bossów**.
    - Czy w oryginale da się trafić wyciągniętą mackę, zwłaszcza jej koniec z paszczą.
    - Od tego zależy, czy problem jest w naszych zmianach, czy w samej grze.
 
@@ -42,7 +46,6 @@ Stan: 2026-11-15 noc, po teście bossów; paczka nocna ma poprawkę lądowania a
 
 - **Zawieszenie w arenie Stray Demona** (test 15.11: wiele razy, gdzie indziej rzadko). Przyczyna jest w logu do zbadania; na razie odłożone.
 - **Stray Demon ma tylko 2 ataki:** paczka zmienia tylko animacje, AI jest z gry. Nowe ataki wymagają pracy nad AI (na później).
-- **Skok w dół: po ~0,8 s lotu gałka przestaje działać.** Gra w spadaniu nie obraca postaci. Propozycja (obrót w powietrzu jak w ER) czeka na decyzję.
 - Broń wchodzi w teren przy R2 ze sprintu i z wyskoku (koszt tego, że się nie odbija; w ER tak samo).
 - Sprint przy namierzeniu: postać biegnie zamiast sprintować (czeka na poprawkę).
 - Przedmiot, którego masz już 99, zostaje na ziemi bez komunikatu (tak działa gra).
@@ -60,7 +63,6 @@ Stan: 2026-11-15 noc, po teście bossów; paczka nocna ma poprawkę lądowania a
     - dodatki (doskok, ciosy z opóźnieniem, buff po chwycie);
     - czy Gwyn ma wejść do wydania.
 - **Postura i cios krytyczny po przełamaniu** (jak w ER): czy zaczynamy od Black Knighta? Wynik analizy: animacja 2100 Black Knighta ma w TAE zdarzenia JumpTable 41 i typ 67, których zwykłe animacje nie mają. Hipoteza: „można wykonać ripostę”. Test: przełącznik w nocnej DLL, który po kilku trafieniach zleca 2100 najbliższemu Black Knightowi.
-- **Sterowanie w powietrzu przy długim spadaniu** (propozycja 15.11): DLL obraca postać do kierunku gałki przez cały lot, z prędkością obrotu jak w ER (60°/s; na początku spadania 180°/s). Rozpęd idzie za kierunkiem patrzenia, jak teraz.
 
 ## Zaliczone ostatnio
 
