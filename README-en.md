@@ -44,7 +44,7 @@ Ready-to-run packages for testers (no compilation needed) are on the **[Releases
 * **Elden Ring Nightreign** (FromSoftware) — second-phase Artorias attack animations ported into the package.
 * **Community tools:** SoulsFormats, soulstruct, Ghidra, DS Anim Studio.
 
-**License:** the project code (`native/`, `tools/` and scripts) is released under the **MIT License**; see [LICENSE](LICENSE). The license does not cover game files, Elden Ring and Nightreign animations, or third-party tools (Mod Engine 2, MinHook, Ghidra, etc.), which remain under their own licenses.
+**License:** the project code (`native/`, `tools/` and scripts) is released under the **GPL-3.0 License**; see [LICENSE](LICENSE). The license does not cover game files, Elden Ring and Nightreign animations, or third-party tools (Mod Engine 2, MinHook, Ghidra, etc.), which remain under their own licenses.
 
 ## Disclaimer
 

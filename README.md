@@ -44,7 +44,7 @@ Gotowe do uruchomienia paczki dla testerów (niewymagające kompilacji kodu) zna
 * **Elden Ring Nightreign** (FromSoftware) — animacje ataków drugiej fazy Artoriasa przeniesione do paczki.
 * **Narzędzia społecznościowe:** SoulsFormats, soulstruct, Ghidra, DS Anim Studio.
 
-**Licencja:** kod projektu (`native/`, `tools/` i skrypty) udostępniany jest na licencji **MIT** — zob. plik [LICENSE](LICENSE). Licencja nie obejmuje plików gier, animacji z Elden Ringa i Nightreign ani zewnętrznych narzędzi (Mod Engine 2, MinHook, Ghidra itd.), które podlegają własnym licencjom.
+**Licencja:** kod projektu (`native/`, `tools/` i skrypty) udostępniany jest na licencji **GPL-3.0** — zob. plik [LICENSE](LICENSE). Licencja nie obejmuje plików gier, animacji z Elden Ringa i Nightreign ani zewnętrznych narzędzi (Mod Engine 2, MinHook, Ghidra itd.), które podlegają własnym licencjom.
 
 ## Disclaimer
 
