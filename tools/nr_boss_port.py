@@ -265,6 +265,9 @@ def port_one(ctx, nr_id: int, dsr_id: int, out: Path) -> dict:
             "size": out.stat().st_size, "drift": float(drift)}
 
 
+IGNORE_JUDGES: set[int] = set()
+
+
 def hit_windows(tae, anim_id: int, atk_types: set[int], bullet_types: set[int] = frozenset()):
     a = next((x for x in tae.Animations if int(x.ID) == anim_id), None)
     if a is None:  # Nightreign keeps the events of some attacks under the a001 variant
@@ -272,6 +275,11 @@ def hit_windows(tae, anim_id: int, atk_types: set[int], bullet_types: set[int] =
     if a is None:
         return None, 0.0
     ev = list(a.Events)
+    if IGNORE_JUDGES:  # --ignore-judge: behaviours that are not swings (SoC 900 before a lunge / grab)
+        def judge(x):
+            p = bytes(x.GetParameterBytes(False))
+            return struct.unpack_from("<i", p, 8)[0] if len(p) >= 12 else None
+        ev = [x for x in ev if not (int(x.Type) in atk_types and judge(x) in IGNORE_JUDGES)]
     dur = max([float(x.EndTime) for x in ev if float(x.EndTime) < 1000.0] or [0.0])
     # events starting at 0.0 are whole-animation body behaviours in NR (InvokeAttackBehavior (0, 7)), not swings
     hits = sorted((float(x.StartTime), float(x.EndTime)) for x in ev
@@ -507,13 +515,23 @@ def main(argv=None) -> int:
     ap.add_argument("--align-rest", type=float, default=0.0, metavar="MIN_DEG",
                     help="port: turn DSR bones whose rest direction differs from the NR one by >= MIN_DEG onto the NR "
                          "rest pose first (player: DSR T-pose vs ER A-pose); 0 = off")
+    ap.add_argument("--src-game", choices=["er", "ds3"], default="er",
+                    help="source game of --nr: er = Elden Ring / Nightreign (default), ds3 = Dark Souls III "
+                         "(--nr ds3c5280 = work/boss_port/nr_ds3c5280 from tools/ds3_unpack_anibnd.py)")
+    ap.add_argument("--ignore-judge", type=int, nargs="*", default=[], metavar="ID",
+                    help="install: attack behaviours of the source TAE that are not swings (not used as anchors)")
     ap.add_argument("--keep-dsr-bones", metavar="REGEX",
                     help="port: unmapped DSR bones matching REGEX move as in the DSR template clip (e.g. ^Tail)")
     args = ap.parse_args(argv)
+    IGNORE_JUDGES.update(args.ignore_judge)
 
     load_havok()
     from soulstruct.havok.core import HKX
     from soulstruct.havok.fromsoft import darksouls1r as d, eldenring as e
+    if args.src_game == "ds3":  # Dark Souls III source (tools/ds3_unpack_anibnd.py -> work/boss_port/nr_ds3<chr>)
+        import ds3_havok_fix  # root-motion member offsets of the 64-bit hk_2014 files
+        ds3_havok_fix.apply()
+        from soulstruct.havok.fromsoft import darksouls3 as e
     from soulstruct.havok.utilities.maths import Quaternion, TRSTransform, Vector3
 
     DD, ED = BP / f"dsr_{args.dsr}" / "anibnd", BP / f"nr_{args.nr}" / "anibnd"

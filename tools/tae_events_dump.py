@@ -28,7 +28,11 @@ def main(argv=None) -> int:
         head = fh.read(64)
     # DCX-compressed or plain: an Elden Ring / Nightreign binder is BND4
     is4 = b"BND4" in head or "nuxe" in path.lower() or "nightreign" in path.lower()
-    for f in read_binder(BND4 if is4 else BND3, path).Files:
+    try:
+        binder = read_binder(BND4 if is4 else BND3, path)
+    except Exception:  # DCX-compressed: the header does not tell; try the other binder version
+        binder = read_binder(BND3 if is4 else BND4, path)
+    for f in binder.Files:
         name = ntpath.basename(str(f.Name)).lower()
         if not name.endswith(".tae") or (args.tae and name != f"{args.tae.lower()}.tae"):
             continue
