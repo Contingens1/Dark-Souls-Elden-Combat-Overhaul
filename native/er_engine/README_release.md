@@ -7,7 +7,7 @@ Ruch, uniki, skok i picie estusa w stylu Elden Ringa w Dark Souls Remastered. Od
 > **Do działania moda WYMAGANY jest Mod Engine 2 w wersji wspierającej Dark Souls Remastered.**
 > Bez niego mod się nie uruchomi. Mod Engine 2 nie jest dołączony do paczki.
 
-- **Mod Engine 2 z obsługą Dark Souls Remastered** — wydanie, które w swoim folderze ma plik `launchmod_darksoulsremastered.bat` (launcher przyjmuje `-t dsr`). Starsze wydania, tylko dla Dark Souls 3 / Elden Ring, nie zadziałają. Projekt: <https://github.com/soulsmods/ModEngine2>. Rozpakuj go w dowolne miejsce (nie musi być w katalogu gry).
+- **Mod Engine 2 z obsługą Dark Souls Remastered** — wydanie, które w swoim folderze ma plik `launchmod_darksoulsremastered.bat` (launcher przyjmuje `-t dsr`). Działający build dla DSR: <https://www.nexusmods.com/darksoulsremastered/mods/790>. Oficjalne wydanie z GitHuba (`ModEngine-2.1.0.0`) nie ma wsparcia dla DSR. Starsze wydania, tylko dla Dark Souls 3 / Elden Ring, też nie zadziałają. Rozpakuj go w dowolne miejsce (nie musi być w katalogu gry).
 - **Dark Souls Remastered** (Steam), wersja exe z SHA-256 `A45AAA36…` (aktualna w chwili wydania moda). Narzędzie konfiguracji sprawdza to samo i ostrzega, jeśli masz inną.
 - Windows 10 / 11.
 
@@ -91,7 +91,7 @@ Wersja testowa (pre-release): poprawki sprawdzone w grze, ale mogą pojawić si�
 - **Przejście** — gdy pasek HP spadnie do zera, Artorias nie ginie: klęka w animacji wzmocnienia (nie da się jej przerwać ani zadać obrażeń), odnawia całe HP i kończy wybuchem oraz dwoma pierścieniami mrocznych kul.
 - **Faza 2** — wzmocnienie na stałe (mocniejsze ciosy) i nowe ataki przeniesione z Elden Ring Nightreign: długie combo, szarże z cięciem, dwa wielkie skoki pod rząd, salta zakończone skokiem z ciosem z góry. Na mieczu przez całą fazę mroczna aura; skoki zapowiadają iskry z końca miecza, a po wbiciu miecza w ziemię wybucha mały mroczny wybuch.
 - Obie fazy mają razem ok. 1,2× HP oryginalnego Artoriasa. Po zabiciu w fazie 2 Artorias daje swoją duszę bossa; dusze pojawiają się z kilkusekundowym opóźnieniem.
-- Wyłączenie drugiej fazy: `ArtoriasPhase2=0` w `bin\er_engine.ini` (ataki z Nightreign zostają w plikach, ale bez przejścia Artorias ginie przy 0 HP).
+- Wyłączenie drugiej fazy: `ArtoriasPhase2=0` w `bin\er_engine.ini` (domyślnie `2`, patrz „Ustawienia”). Ataki z Nightreign zostają w plikach, ale bez przejścia Artorias ginie przy 0 HP.
 
 ## Nowe w 0.3.0
 
@@ -138,12 +138,11 @@ Wersja testowa (pre-release): poprawki sprawdzone w grze, ale mogą pojawić si�
 
 ## Znane ograniczenia
 
-- Ataki z wyskoku: przy dotknięciu ziemi widać lekkie szarpnięcie postaci i mały przeskok animacji. Katana używa animacji miecza zakrzywionego, a zwykły atak toporem — animacji młota (brak przeliczonych animacji ER dla tych grup). Młoty nie mają R2 z wyskoku, pięści nie mają ataków z wyskoku wcale. Przy bardzo długim upadku zamach kończy się w powietrzu i dalej leci zwykłe spadanie.
+- Ataki z wyskoku: przy dotknięciu ziemi widać lekkie szarpnięcie postaci i mały przeskok animacji. Przy bardzo długim upadku zamach kończy się w powietrzu i dalej leci zwykłe spadanie.
 - Sprint przy namierzonym celu działa tylko w przód (jak w DSR); w bok i w tył postać idzie krokiem.
-- Przy piciu w marszu broń w ręce chwilę miga. Kosmetyczne.
 - Sporadycznie postać potrafi „zawisnąć” bez animacji (stoi mimo wciśniętego kierunku) do następnego trafienia lub akcji. Od 0.4.0 przypadek po przewrocie jest naprawiany automatycznie (`HangRepair`); jeśli zawieszenie nadal się zdarza, zgłoś je.
 - Artorias: balans sprawdzany tylko na NG+; wybuch przy skokach wygląda jeszcze skromnie (mechanika jest ważniejsza). Przejście do drugiej fazy czeka, aż Artorias dokończy cios, którego nie da się przerwać.
-- Lekkie ślizganie przy lądowaniu po skoku; z bronią ręce przeskakują do innej pozy przy przejściu skok → spadanie.
+- Ślizganie przy lądowaniu po R1 i po skoku ze sprintu (patrz „Nowe w 0.5.2”); z bronią ręce przeskakują do innej pozy przy przejściu skok → spadanie.
 - Blok tarczą w sprincie wygląda nienaturalnie (animacja sprintu z ER).
 - Unik kończący się na ścianie przy namierzeniu potrafi sporadycznie zawiesić postać w pozie do następnej akcji.
 
@@ -152,7 +151,7 @@ Wersja testowa (pre-release): poprawki sprawdzone w grze, ale mogą pojawić si�
 - **Player Animations Repository** (Nexus Mods, DSR #748) — animacje Elden Ringa przeniesione na szkielet DSR, użyte w plikach `files\chr\*.anibnd.dcx`. **Nie publikuj tej paczki dalej bez zgody autorów tego repozytorium.**
 - **DSROmniRoll** (Nexus Mods, DSR #1378) i **Simple Estus Walking** — pomysły, na których wzorowane są własne implementacje przewrotu we wszystkie strony i picia w ruchu. Ich pliki nie są częścią tej paczki.
 - **Elden Ring Nightreign** (FromSoftware) — animacje ataków Artoriasa drugiej fazy przeniesione na jego szkielet z DSR (`files\chr\c4100.anibnd.dcx`).
-- **Mod Engine 2** (soulsmods) — ładowanie modów (nie jest dołączony).
+- **Mod Engine 2** (soulsmods; wersja z obsługą DSR od AltimorFP, z paczki Nikolay97) — ładowanie modów (nie jest dołączony).
 - **MinHook** (Tsuda Kageyu) — biblioteka hooków wkompilowana w `er_engine.dll`.
 
 Narzędzia: SoulsFormats, soulstruct, Ghidra, DS Anim Studio (szablon TAE).
