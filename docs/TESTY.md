@@ -12,14 +12,15 @@ Stan: 2026-11-15 wieczór, po teście gracza (skok, bronie unikalne, Gwyn). **To
 
 ## Do przetestowania
 
-1. **Skok: lądowanie w bieg i w sprint** (nowa wersja 15.11 wieczór, ustawienie `LandToRun`). Po skoku z biegu albo sprintu z wychyloną gałką DLL odtwarza lądowanie z ER, które przechodzi w bieg lub sprint, a po ~0,5 s oddaje ruch grze. Poza w locie to teraz pętla lotu z ER.
-   - Z biegu po płaskim, gałka cały czas wychylona: po lądowaniu biegnie dalej, bez zwalniania i bez poślizgu.
-   - Ze sprintu z trzymanym B: po lądowaniu sprintuje dalej, bez ponownego rozpędzania. Z puszczonym B w locie: ląduje w bieg.
-   - Puszczenie gałki zaraz po lądowaniu: postać krótko się zatrzymuje.
-   - Unik albo atak tuż po lądowaniu: działa od razu.
-   - Dłuższy skok (z biegu na niższy poziom): w locie bez przeskoku rąk i nóg. Po wyraźnie dłuższym spadaniu krótkie lądowanie bez natychmiastowego biegu (tak ma być, jak w ER).
-   - Skok z miejsca: bez zmian.
-   - Porównanie: `LandToRun=0` w `dist\mods\c0000_er_engine_night\bin\er_engine.ini` (wtedy stare lądowanie; poza w locie zostaje nowa).
+1. **Skok, wersja 2** (15.11 wieczór). Test wersji 1: fizyka lądowania dobra (bez hamowania i bez poślizgu po płaskim i w dół), zostały: przeskok rąk i broni w locie, mocny poślizg po skoku z niższego na wyższy (schody). Wersja 2:
+   - klip skoku z ER gra do końca (do teraz był ucinany w 0,66 s, a dopiero jego koniec ma pozę pętli lotu);
+   - przez pierwsze 0,13 s lądowania prędkość ustawia DLL (przejście animacji dokładało do 1 m przesunięcia).
+
+   Do sprawdzenia:
+   - w locie ręce i broń bez przeskoku (z biegu, ze sprintu, z miejsca, krótki i długi skok);
+   - skok z niższego na wyższy (schody, krawędź): po lądowaniu bez poślizgu;
+   - to, co już działało: po płaskim i w dół bez hamowania i bez poślizgu, sprint z trzymanym B dalej sprintem, długi spadek z krótkim lądowaniem;
+   - porównanie: `JumpClipToEnd=0` (stary przeskok, a skok po ucięciu może hamować) albo `LandRunRootHold=0` (stary poślizg) w `dist\mods\c0000_er_engine_night\bin\er_engine.ini`.
 2. ~~Bronie z całym unikalnym zestawem ruchów~~: zaliczone 15.11 (na dole).
 3. **Gwyn** (Kiln of the First Flame), ruchy z Soul of Cinder z DS3. Test 15.11: miecz, płaszcz i ciosy wyglądają dobrze. Zostało:
    - chwyt i rzut działają jak wcześniej;

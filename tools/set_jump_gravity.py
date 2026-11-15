@@ -6,6 +6,8 @@ ja tylko, gdy w TAE trwa JT27 "Ignore Gravity" (wanilia: 0-0.1 s; mod Realistic 
 Ustawiamy koniec JT27 na czas animacji ER wybicia; potem grawitacja i ladowanie DSR.
 
 Uzycie (CMD): python tools\\set_jump_gravity.py   (dziala na files/chr/c0000.anibnd.dcx moda)
+Only the JT27 end (night package, ER clip played to its end by er_engine.dll [Jump] JumpClipToEnd):
+    python tools\\set_jump_gravity.py --chr dist\\mods\\bossy_nightreign\\files_c0000_night\\chr --jt27-end 900=0.64,901=0.76,902=0.64
 """
 from __future__ import annotations
 
@@ -23,7 +25,43 @@ GRAVITY_END = {900: 23 / 30, 901: 26 / 30, 902: 25 / 30}
 CANCELS = {4, 11, 16, 22, 26, 29, 31, 32}  # okna przerwan: atak, ruch, blok, przewrot, czar, przedmiot, ogolne
 
 
+def jt27_only(chr_dir: Path, ends: dict[int, float]) -> int:
+    """--jt27-end mode (2026-11-15): change only the end of JT27 (Ignore Gravity) of the given jumps in chr_dir.
+    Used for the night package: gravity (and the DLL's fall momentum) takes over at the old cut time, so the
+    ER jump clip can play to its end - its last pose is the first pose of the ER flight loop (1550)."""
+    load_soulsformats()
+    from SoulsFormats import BND3, TAE
+    path = chr_dir / "c0000.anibnd.dcx"
+    bnd = read_binder(BND3, str(path))
+    f = next(f for f in bnd.Files if ntpath.basename(f.Name).lower() == "a00.tae")
+    tae = read_file(TAE, f.Bytes)
+    for a in tae.Animations:
+        aid = int(a.ID)
+        if aid not in ends:
+            continue
+        for e in a.Events:
+            p = bytes(e.GetParameterBytes(False))
+            if int(e.Type) == 0 and len(p) >= 4 and struct.unpack_from("<i", p)[0] == 27:
+                print(f"  {aid}: JT27 {e.StartTime:.3f}-{e.EndTime:.3f} -> {e.StartTime:.3f}-{ends[aid]:.3f}")
+                e.EndTime = ends[aid]
+    f.Bytes = to_memory(tae.Write())
+    tmp = path.with_suffix(".tmp")
+    bnd.Write(str(tmp))
+    bnd.Dispose()
+    tmp.replace(path)
+    print(f"OK -> {path}")
+    return 0
+
+
 def main() -> int:
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--chr", type=Path, help="chr folder for --jt27-end (default: the main mod)")
+    ap.add_argument("--jt27-end", help="only set the JT27 end, e.g. 900=0.64,901=0.76,902=0.64")
+    args = ap.parse_args()
+    if args.jt27_end:
+        ends = {int(k): float(v) for k, v in (kv.split("=") for kv in args.jt27_end.split(","))}
+        return jt27_only((args.chr or ANIBND.parent).resolve(), ends)  # before load_soulsformats changes the cwd
     load_soulsformats()
     from SoulsFormats import BND3, TAE
     bnd = read_binder(BND3, str(ANIBND))

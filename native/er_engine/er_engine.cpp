@@ -469,6 +469,10 @@ static bool g_landRunOn = false;
 static float g_landRunStartSec = 0.15f, g_landDashStartSec = 0.30f;  // clip time to start from (run / sprint speed)
 static DWORD g_landRunHoldMs = 450, g_landDashHoldMs = 500;          // hand-over to the game's locomotion
 static float g_landRunBlendInSec = 0.10f, g_landRunBlendOutSec = 0.20f;
+static DWORD g_landRunRootHoldMs = 130;  // [Jump] LandRunRootHold: velocity set by the DLL while the landing blends in
+// [Jump] JumpClipToEnd (test 2026-11-15, needs JT27 ending at ~0.64 s: tools/set_jump_gravity.py --jt27-end): the ER
+// jump clip plays to its end instead of being cut at 0.65 s; its last pose is the first pose of the ER flight loop.
+static bool g_jumpClipToEnd = false;
 static bool g_lockFreeForced = false;
 static BYTE g_lockFreeSaved = 0;
 
@@ -700,6 +704,9 @@ static void LoadConfigIni() {
     g_landDashHoldMs = static_cast<DWORD>(GetPrivateProfileIntA("Jump", "LandDashHold", 500, iniPath));
     g_landRunBlendInSec = GetPrivateProfileIntA("Jump", "LandRunBlendIn", 100, iniPath) / 1000.f;
     g_landRunBlendOutSec = GetPrivateProfileIntA("Jump", "LandRunBlendOut", 200, iniPath) / 1000.f;
+    g_landRunRootHoldMs = static_cast<DWORD>(GetPrivateProfileIntA("Jump", "LandRunRootHold", 130, iniPath));
+    g_jumpClipToEnd = GetPrivateProfileIntA("Jump", "JumpClipToEnd", 0, iniPath) != 0;
+    Log("config: LandRunRootHold=%lu ms JumpClipToEnd=%d", g_landRunRootHoldMs, g_jumpClipToEnd ? 1 : 0);
     Log("config: LandToRun=%d start %.2f/%.2f s, hold %lu/%lu ms, blend in %.2f out %.2f s", g_landRunOn ? 1 : 0,
         g_landRunStartSec, g_landDashStartSec, g_landRunHoldMs, g_landDashHoldMs, g_landRunBlendInSec, g_landRunBlendOutSec);
     Log("config: AttackFaceTarget=%d LockOnSprintFree=%d", g_attackFaceOn ? 1 : 0, g_lockSprintFreeOn ? 1 : 0);
@@ -2586,7 +2593,12 @@ constexpr float kMomGravity = 9.8f;     // m/s^2 (z sondy: 0.163 m/s na klatke)
 constexpr float kFallClampVanilla = 6.0f, kFallClampRaised = 12.0f;  // limit XZ na os w spadaniu
 // Koniec animacji skoku [ms od zlecenia]. Z sondy: hamowanie root motion widac od klatki ~700 ms
 // (900, 902) i ~830 ms (901); po naszym -1 gra odtwarza jeszcze najwyzej 1 klatke.
-static DWORD MomCutMs(int anim) { return anim == kJumpAnimStanding ? 770 : 650; }
+static DWORD MomCutMs(int anim) {
+    // JumpClipToEnd: one frame before the clip ends (900 = ER 202030 0.77 s, 902 = 202020 0.83 s, 901 = 202000
+    // 0.87 s; tools/er_jump_pose: the last pose equals the first pose of Jump_Loop = the night package's 1550).
+    if (g_jumpClipToEnd) return anim == kJumpAnimStanding ? 840 : anim == kJumpAnimVanilla ? 740 : 800;
+    return anim == kJumpAnimStanding ? 770 : 650;
+}
 
 static DWORD g_momJumpAt = 0, g_momFallAt = 0, g_momGoodAt = 0;
 static int g_momAnim = 0;
@@ -2624,7 +2636,19 @@ static void SetFallClamp(bool raised) {
 static void AirMomentumEnd(const char* why) {
     if (g_momActive)
         Log("[%7lu ms] rozped: koniec (%s) po %lu ms spadania", GetTickCount() - g_t0, why, GetTickCount() - g_momFallAt);
-    if (!g_momAtk && (strcmp(why, "ladowanie") == 0 || strcmp(why, "ladowanie bez spadania") == 0)) LandRunOnTouchdown(why);
+    bool landed = !g_momAtk && (strcmp(why, "ladowanie") == 0 || strcmp(why, "ladowanie bez spadania") == 0);
+    if (landed && g_momAnimOn && !g_momCut && g_momCtx && g_origPlayAnim) {
+        // Touchdown while the jump clip still plays (JumpClipToEnd, a jump onto higher ground): end it like the cut,
+        // otherwise its landing frames would push the character on the ground.
+        unsigned long long out[2] = {};
+        for (int layer : {7, 23}) g_origPlayAnim(g_momCtx, out, -1, layer, 0, g_momA6, 0);
+        g_momCut = true;
+        g_momAnimOn = false;
+        g_jumpEnded = true;
+        Log("[%7lu ms] rozped: koniec animacji skoku %d przy ladowaniu po %lu ms", GetTickCount() - g_t0, g_momAnim,
+            GetTickCount() - g_momJumpAt);
+    }
+    if (landed) LandRunOnTouchdown(why);
     if (g_momClampRaised) SetFallClamp(false);
     g_momActive = false;
     g_momJumpAt = 0;
@@ -2752,6 +2776,12 @@ static void AirMomentumTick(float dt) {
                 }
             }
         }
+        // JumpClipToEnd: gravity (JT27) ends before the clip's braking frames, the momentum above already drives the
+        // character, and the clip only shows the pose - it is ended near its last frame, airborne or not.
+        if (g_jumpClipToEnd && !g_momCut && g_momAnimOn && !g_momAtk && !end && t >= MomCutMs(g_momAnim)) {
+            g_momCut = true;
+            doCut = true;
+        }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         end = "wyjatek";
     }
@@ -2795,6 +2825,14 @@ static int g_lrGameLandAnim = 0;
 static DWORD g_lrHandAt = 0;                     // diag: hand-over time (0 = no report pending)
 static float g_lrHandV = 0.f, g_lrMinV = 0.f, g_lrV100 = -1.f, g_lrV300 = -1.f;
 static DWORD g_lrMinAt = 0;
+// Root hold while the landing blends in (player test 2026-11-15: "a very strong slide when landing after a jump onto
+// higher ground"). Log: in the first ~80 ms after the landing starts the root motion of the blend adds up the clip's
+// skipped start (and the fading jump clip) - 905 went 2.5 -> 9.9 -> 13.6 -> 21 -> 51 m/s, ~1 m of slide; 904 up to
+// 15 m/s. As in the jump attack time jump (AirAttackRootHold): +0x1F3 = 1 makes the controller take the velocity from
+// +0xD0, which the DLL sets to the facing direction at the landing speed until the blend is over.
+static float g_lrSpeed = 0.f;
+static DWORD g_lrHoldFrom = 0;
+static bool g_lrHolding = false;
 
 static int FloatBits(float f) { int i; memcpy(&i, &f, sizeof(i)); return i; }
 
@@ -2825,8 +2863,32 @@ static void LandRunPlay(float t) {
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
+static void LandRunRootHold(bool on) {
+    BYTE* ph = ChrPosData();
+    if (!ph) return;
+    __try {
+        if (!on) {
+            if (g_lrHolding) ph[0x1F3] = 0;
+            g_lrHolding = false;
+            return;
+        }
+        float ang = PhysF(ph, 0x4);  // facing: forward = (-sin, -cos)
+        float vx = -sinf(ang) * g_lrSpeed, vz = -cosf(ang) * g_lrSpeed;
+        ph[0x1F3] = 1;
+        auto d0 = reinterpret_cast<float*>(ph + 0xD0);
+        d0[0] = vx; d0[1] = -0.16f; d0[2] = vz;  // -0.16 = the controller's own vertical speed on the ground
+        auto proxy = *reinterpret_cast<BYTE**>(ph + 0x38);
+        if (reinterpret_cast<ULONG_PTR>(proxy) >= 0x10000) {
+            auto v = reinterpret_cast<float*>(proxy + 0x60);
+            v[0] = vx; v[1] = -0.16f; v[2] = vz;
+        }
+        g_lrHolding = true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
 static void LandRunEnd(const char* why, bool endAnim, float blend) {
     DWORD now = GetTickCount();
+    LandRunRootHold(false);
     float v = LandRunSpeed();
     if (endAnim && g_lrCtx && g_origPlayAnim) {
         unsigned long long out[2] = {};
@@ -2871,9 +2933,14 @@ static void LandRunOnTouchdown(const char* how) {
     g_jumpEnded = true;  // CancelLandingRollIfIdle must not end it
     g_airJumpAt = 0;     // air control off (it would still nudge the position until 950 ms)
     float v = LandRunSpeed();
+    float lo = dash ? 5.2f : 3.6f, hi = dash ? 6.5f : 4.6f;  // clip speed right after the start time (ER 202125 / 202115)
+    g_lrSpeed = v < lo ? lo : v > hi ? hi : v;
     LandRunPlay(g_lrStartT);
-    Log("[%7lu ms] land-to-run: %d from %.2f s (%s; jump %d, stick %.2f, speed before the jump %.2f, now %.2f, sprint key %d)",
-        now - g_t0, g_lrAnim, g_lrStartT, how, g_momAnim, mag, g_jumpGroundSpeed, v, sprintKey ? 1 : 0);
+    g_lrHoldFrom = now;
+    if (g_landRunRootHoldMs) LandRunRootHold(true);
+    Log("[%7lu ms] land-to-run: %d from %.2f s (%s; jump %d, stick %.2f, speed before the jump %.2f, now %.2f, held %.2f for %lu ms, sprint key %d)",
+        now - g_t0, g_lrAnim, g_lrStartT, how, g_momAnim, mag, g_jumpGroundSpeed, v, g_lrSpeed, g_landRunRootHoldMs,
+        sprintKey ? 1 : 0);
 }
 
 // Game requests (PlayAnimDetour, before the call). Our own requests go straight to g_origPlayAnim and do not come here.
@@ -2904,9 +2971,12 @@ static void LandRunTick() {
             ++g_lrReplays;
             float t = g_lrStartT + (now - g_lrAt) / 1000.f;
             LandRunPlay(t);
+            g_lrHoldFrom = now;
             Log("[%7lu ms] land-to-run: the game ended %d after %lu ms - started again from %.2f s", now - g_t0, g_lrAnim,
                 now - g_lrAt, t);
         }
+        if (g_landRunRootHoldMs && now - g_lrHoldFrom < g_landRunRootHoldMs) LandRunRootHold(true);
+        else if (g_lrHolding) LandRunRootHold(false);
         if (StickMag() < 0.2f) {
             if (++g_lrLowTicks >= 2) { LandRunEnd("stick released", true, g_landRunBlendOutSec); return; }
         } else {
