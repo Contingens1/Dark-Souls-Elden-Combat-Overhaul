@@ -522,6 +522,8 @@ static bool g_jumpClipToEnd = false;
 // JumpAtkMaxGravity, and the landing blend goes through PlayAnim's a6 (as in the run landing) instead of a record write.
 static bool g_jumpAtkTouchOn = false;
 static float g_jumpAtkMaxGravity = 40.f;
+static bool g_jumpAtkSwingSlowOn = false;      // [Jump] JumpAtkSwingSlow (JumpAtkSwingSlowStart, jump attack section)
+static float g_jumpAtkMinSwingSpeed = 0.65f;   // [Jump] JumpAtkMinSwingSpeed (percent)
 // [Jump] AirTurnSpeed (deg/s, 0 = off; player report 2026-11-15: on a long jump down the stick stops working ~0.8 s in):
 // the fall momentum follows the facing, and DSR turns the character only while the jump clip plays (its fall loops
 // 1500 / 1550 have no turning). ER turns in the air all the time: SetTurnSpeed (TAE 224) 60 deg/s over the whole
@@ -766,6 +768,10 @@ static void LoadConfigIni() {
     g_jumpAtkTouchOn = GetPrivateProfileIntA("Jump", "JumpAtkTouchTiming", 0, iniPath) != 0;
     g_jumpAtkMaxGravity = static_cast<float>(GetPrivateProfileIntA("Jump", "JumpAtkMaxGravity", 40, iniPath));
     Log("config: JumpAtkTouchTiming=%d JumpAtkMaxGravity=%.0f m/s2", g_jumpAtkTouchOn ? 1 : 0, g_jumpAtkMaxGravity);
+    g_jumpAtkSwingSlowOn = GetPrivateProfileIntA("Jump", "JumpAtkSwingSlow", 0, iniPath) != 0;
+    g_jumpAtkMinSwingSpeed = GetPrivateProfileIntA("Jump", "JumpAtkMinSwingSpeed", 65, iniPath) / 100.f;
+    if (g_jumpAtkMinSwingSpeed < 0.3f) g_jumpAtkMinSwingSpeed = 0.3f;
+    Log("config: JumpAtkSwingSlow=%d JumpAtkMinSwingSpeed=%.2f", g_jumpAtkSwingSlowOn ? 1 : 0, g_jumpAtkMinSwingSpeed);
     g_airTurnSpeed = static_cast<float>(GetPrivateProfileIntA("Jump", "AirTurnSpeed", 0, iniPath));
     Log("config: AirTurnSpeed=%.0f deg/s", g_airTurnSpeed);
     Log("config: LandToRun=%d start %.2f/%.2f s, hold %lu/%lu ms, blend in %.2f out %.2f s", g_landRunOn ? 1 : 0,
@@ -2149,8 +2155,32 @@ static void AirAttackRootHold(bool on) {
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
+// [Jump] JumpAtkSwingSlow (second try, 2026-11-15 night; the faster fall of JumpAtkTouchTiming made the arc look capped):
+// the arc stays as it was and the swing plays slower in the air, so that at the predicted flat touchdown the swing is at
+// the time where the ER landing fits (jump_attack_touch.h). The speed is the character's animation speed (SetAnimSpeed,
+// re-applied every tick like the unique attack tempo); the swing time the landing needs is tracked here.
+static bool g_airAtkSlowOn = false;
+static float g_airAtkSlowS = 1.f;
+static DWORD g_airAtkSlowAt = 0, g_airAtkSlowFromMs = 0;
+
+static DWORD AirAttackClipMs(DWORD now) {  // swing (clip) time, not wall time, once the swing is slowed
+    if (!g_airAtkSlowOn) return now - g_airAtkAt;
+    return g_airAtkSlowFromMs + static_cast<DWORD>((now - g_airAtkSlowAt) * g_airAtkSlowS);
+}
+
+static void AirAttackSlowEnd(const char* why) {
+    if (!g_airAtkSlowOn) return;
+    DWORD now = GetTickCount();
+    DWORD clip = AirAttackClipMs(now);
+    g_airAtkSlowOn = false;
+    SetAnimSpeed(1.f);
+    Log("[%7lu ms] jump attack: swing speed back to 1 (%s) at %lu ms of the swing, %lu ms after the attack", now - g_t0, why,
+        clip, now - g_airAtkAt);
+}
+
 static void AirAttackReset() {
     if (g_airAtkSpeedSet) { AirAttackSpeed(1.f); g_airAtkSpeedSet = false; }
+    AirAttackSlowEnd("reset");
     g_airAtkState = kAtkNone;
     g_airAtkFfLeft = 0.f;
     g_airAtkMoveLock = false;
@@ -2206,6 +2236,38 @@ static float JumpAtkTouchGravity(DWORD now) {
     return g;
 }
 
+// [Jump] JumpAtkSwingSlow: at the start of the fall after a jump attack, the flat touchdown is predicted with the usual
+// gravity (kAirAtkGravity): from h m above the start and vertical speed v = vA - g e, the time left is
+// T = (v + sqrt(v^2 + 2 g h)) / g. The swing speed s = (touch - e) / T puts the swing at the touch time then; only
+// slower than 1, at least JumpAtkMinSwingSpeed. Landing lower than the start comes later (the swing is then past it).
+static void JumpAtkSwingSlowStart(DWORD now) {
+    unsigned touch = g_airAtkRow ? JumpAttackTouchMs(g_airAtkRow->anim) : 0;
+    BYTE* ph = ChrPosData();
+    if (!touch || !ph) return;
+    float h = 0.f;
+    __try { h = *reinterpret_cast<float*>(ph + 0x14) - g_airY0; } __except (EXCEPTION_EXECUTE_HANDLER) { return; }
+    float e = (now - g_airAtkAt) / 1000.f;
+    float g = kAirAtkGravity;
+    float v = g_airAtkV[1] - g * e;
+    float disc = v * v + 2.f * g * h;
+    float T = disc > 0.f ? (v + sqrtf(disc)) / g : -1.f;
+    if (T < 0.05f) return;  // already at / below the start level
+    float want = (touch / 1000.f - e) / T;
+    if (want >= 0.98f) {
+        Log("[%7lu ms] jump attack: swing not slowed (touchdown predicted in %.0f ms, at %.0f ms of the swing; target %u)",
+            now - g_t0, T * 1000.f, (e + T) * 1000.f, touch);
+        return;
+    }
+    float s = want < g_jumpAtkMinSwingSpeed ? g_jumpAtkMinSwingSpeed : want;
+    g_airAtkSlowOn = true;
+    g_airAtkSlowS = s;
+    g_airAtkSlowAt = now;
+    g_airAtkSlowFromMs = now - g_airAtkAt;
+    SetAnimSpeed(s);
+    Log("[%7lu ms] jump attack: swing speed %.2f (wanted %.2f) for a touchdown at %u ms of the swing (fall %.0f ms left, "
+        "height %.2f m, vertical %.2f m/s)", now - g_t0, s, want, touch, T * 1000.f, h, v);
+}
+
 // End of the landing (move input or no input): -1 on layers 7/23 with the blend given in the ini instead of the
 // game's default, so the legs do not snap from the ER landing pose to idle / running (test 2026-11-14).
 static void AirAttackEndLanding() {
@@ -2228,7 +2290,8 @@ static bool AirAttackOnGround() {
 // skonczy swoje -1 na warstwie 23 (AirAttackAfterPlayAnim).
 static void AirAttackReplayNow(bool fromGame = false);
 
-static void AirAttackBeginLand(DWORD t, bool playNow) {
+static void AirAttackBeginLand(DWORD t, bool playNow) {  // t = swing (clip) time, AirAttackClipMs
+    AirAttackSlowEnd("touchdown");
     DWORD now = GetTickCount();
     const JumpAttackRow* r = g_airAtkRow;
     bool beforeHit = t + 20 < r->hitMs;
@@ -2436,8 +2499,9 @@ static void AirAttackTick(float dt) {
         }
         return;
     }
-    DWORD t = now - g_airAtkAt;
+    DWORD t = AirAttackClipMs(now);
     if (t > 6000) { AirAttackReset(); return; }
+    if (g_airAtkSlowOn) SetAnimSpeed(g_airAtkSlowS);  // re-applied every tick (as AttackSpeedTick)
     BYTE* ph = ChrPosData();
     if (!ph) return;
     bool ground = false, f3 = false, gravOff = true;
@@ -2514,7 +2578,7 @@ static int AirAttackSubstitute(void* ctx, int anim, int layer, int a6) {
         DWORD now = GetTickCount();
         // Gra konczy atak w skoku w chwili ladowania (-1 na 7, potem na 23) - wtedy wchodzi nasze ladowanie.
         if (anim == -1 && g_airAtkState == kAtkAir && g_airAtkSeenAir && now - g_airAtkAt >= 100 && AirAttackOnGround()) {
-            AirAttackBeginLand(now - g_airAtkAt, false);
+            AirAttackBeginLand(AirAttackClipMs(now), false);
             return anim;
         }
         if (anim == -1 && g_airAtkState == kAtkLand && g_airAtkReplays < 3 && now - g_airAtkTouchAt < 250) {
@@ -2858,6 +2922,7 @@ static void AirMomentumTick(float dt) {
                 g_momG = g_momAtk ? kAirAtkGravity : kMomGravity;
                 if (g_momAtk) {  // atak z wyskoku: wektor z chwili ataku (pion ograniczony do szczytu skoku)
                     if (g_jumpAtkTouchOn && g_airAtkState == kAtkAir) g_momG = JumpAtkTouchGravity(now);
+                    else if (g_jumpAtkSwingSlowOn && g_airAtkState == kAtkAir) JumpAtkSwingSlowStart(now);
                     g_mom[0] = g_airAtkV[0] * kAirAtkHoriz; g_mom[1] = g_airAtkV[2] * kAirAtkHoriz;
                     vy0 = g_airAtkV[1] - g_momG * (now - g_airAtkVAt) / 1000.f;
                     g_airAtkVOk = false;
