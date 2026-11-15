@@ -276,6 +276,9 @@ static DWORD g_rollEndAt = 0;  // end of the player's last roll / backstep (L7 7
 static void AirMomentumTick(float dt);  // nizej, rozped w spadaniu po skoku
 static void AirMomentumStart(int anim);
 static void AirMomentumOnOtherAnim();
+static void LandRunOnTouchdown(const char* how);              // below: ER landing into a run ([Jump] LandToRun)
+static void LandRunOnPlayAnim(void* ctx, int anim, int layer);  // below: the game's requests while it plays
+static void LandRunTick();
 static void* g_momCtx = nullptr;        // ctx i a6 zlecenia skoku - do zakonczenia animacji
 static DWORD g_sprintSeenAt = 0;        // last input frame with the sprint flag (+0x1E4) on (SprintHeavySubstitute)
 static int g_momA6 = 0;
@@ -460,6 +463,12 @@ static float g_landBlendSec = 0.f;       // [Jump] LandBlend (ms): swing -> land
 static float g_landSpeedCap = 0.f;       // [Jump] LandSpeedCap (m/s): horizontal speed cap after touchdown, 0 = off
 static bool g_fallSpeedFromGround = false;  // [Jump] FallSpeedFromGround: fall momentum <= speed before the jump
 static float g_landEndBlendSec = -1.f;   // [Jump] LandEndBlend (ms): blend when the landing ends (-1 = the game's)
+// [Jump] LandToRun (test 2026-11-15): after a run / sprint jump the DLL plays the ER landing into a run / sprint
+// (904 / 905, tools/add_land_anims.py) instead of letting the game restart the locomotion from a standstill.
+static bool g_landRunOn = false;
+static float g_landRunStartSec = 0.15f, g_landDashStartSec = 0.30f;  // clip time to start from (run / sprint speed)
+static DWORD g_landRunHoldMs = 450, g_landDashHoldMs = 500;          // hand-over to the game's locomotion
+static float g_landRunBlendInSec = 0.10f, g_landRunBlendOutSec = 0.20f;
 static bool g_lockFreeForced = false;
 static BYTE g_lockFreeSaved = 0;
 
@@ -684,6 +693,15 @@ static void LoadConfigIni() {
     }
     Log("config: LandStartTime=%d LandBlend=%.0f ms LandSpeedCap=%.0f m/s", g_landStartTimeOn ? 1 : 0,
         g_landBlendSec * 1000.f, g_landSpeedCap);
+    g_landRunOn = GetPrivateProfileIntA("Jump", "LandToRun", 0, iniPath) != 0;
+    g_landRunStartSec = GetPrivateProfileIntA("Jump", "LandRunStart", 150, iniPath) / 1000.f;
+    g_landDashStartSec = GetPrivateProfileIntA("Jump", "LandDashStart", 300, iniPath) / 1000.f;
+    g_landRunHoldMs = static_cast<DWORD>(GetPrivateProfileIntA("Jump", "LandRunHold", 450, iniPath));
+    g_landDashHoldMs = static_cast<DWORD>(GetPrivateProfileIntA("Jump", "LandDashHold", 500, iniPath));
+    g_landRunBlendInSec = GetPrivateProfileIntA("Jump", "LandRunBlendIn", 100, iniPath) / 1000.f;
+    g_landRunBlendOutSec = GetPrivateProfileIntA("Jump", "LandRunBlendOut", 200, iniPath) / 1000.f;
+    Log("config: LandToRun=%d start %.2f/%.2f s, hold %lu/%lu ms, blend in %.2f out %.2f s", g_landRunOn ? 1 : 0,
+        g_landRunStartSec, g_landDashStartSec, g_landRunHoldMs, g_landDashHoldMs, g_landRunBlendInSec, g_landRunBlendOutSec);
     Log("config: AttackFaceTarget=%d LockOnSprintFree=%d", g_attackFaceOn ? 1 : 0, g_lockSprintFreeOn ? 1 : 0);
     Log("config: HangRepair=%d HangRepairV2=%d", g_hangRepairOn ? 1 : 0, g_hangRepairV2On ? 1 : 0);
     char artWhy[MAX_PATH + 64];
@@ -1330,6 +1348,7 @@ static void __fastcall InputDetour(void* ctx, float dt, void* p3) {
     PickupTick(p3);
     AirControlTick(dt);
     AirMomentumTick(dt);
+    LandRunTick();
     if (kDiag) { PhysProbeTick(); EnemyProbeTick(); HangProbeTick(static_cast<const BYTE*>(ctx), p3); }
     AirAttackTick(dt);
     if (kDiag) {  // F8 = znacznik w logu (podzial testu na kroki)
@@ -1802,6 +1821,7 @@ static void* __fastcall PlayAnimDetour(void* ctx, void* out, int a3, int a4, cha
         if (PickupOnPlayAnim(ctx, out, a3, a4, a5, a6, &ret)) return ret;
     }
     if (ctx == g_playerAnimCtx || ctx == g_rollCtx) HangRepairOnPlayAnim(a3, a4);
+    LandRunOnPlayAnim(ctx, a3, a4);
     if (kDiag && a3 >= 0) LogFirstUse(a3, a4);
     if (kDiag) { EnemyProbeOnPlayAnim(ctx, a3, a4); }
     ArtoriasOnPlayAnim(ctx, a3, a4);
@@ -2604,6 +2624,7 @@ static void SetFallClamp(bool raised) {
 static void AirMomentumEnd(const char* why) {
     if (g_momActive)
         Log("[%7lu ms] rozped: koniec (%s) po %lu ms spadania", GetTickCount() - g_t0, why, GetTickCount() - g_momFallAt);
+    if (!g_momAtk && (strcmp(why, "ladowanie") == 0 || strcmp(why, "ladowanie bez spadania") == 0)) LandRunOnTouchdown(why);
     if (g_momClampRaised) SetFallClamp(false);
     g_momActive = false;
     g_momJumpAt = 0;
@@ -2742,6 +2763,169 @@ static void AirMomentumTick(float dt) {
         if (kDiag) Log("[%7lu ms] rozped: koniec animacji skoku %d po %lu ms (przed hamowaniem)", now - g_t0, g_momAnim, t);
     }
     if (end) AirMomentumEnd(end);
+}
+
+// --- Landing into a run / sprint ([Jump] LandToRun, test 2026-11-15) -----------------------------------------
+// Player test 2026-11-15 ("still brakes after a run jump, builds up speed again after a sprint jump") and the log:
+// in the air the speed is right (run 4.4 m/s, sprint 6.4), but on touchdown the game restarts the locomotion from a
+// standstill: run 4.4 -> 1.2 m/s and back to 4.15 after ~0.4 s, sprint (B held) 6.4 -> 2.9 and sprinting again after
+// ~0.45 s. After a short fall the game requests nothing on layer 7 (it only ends the fall pose on layers 8/24), so
+// the base locomotion shows. Elden Ring plays Jump_Land_To_Run / Jump_Land_To_Dash there: clips that already carry
+// the run / sprint speed. tools/add_land_anims.py adds them as 904 / 905; the DLL plays them on layers 7/23 from the
+// clip time where they reach that speed (record +0x5C, see the jump attack section) and after g_landRunHoldMs hands
+// over to the game with a blend - by then the locomotion under layer 7 has spun up (the game's state machine is in
+// the move state and only layer 7 shows our clip). A longer fall where the game plays its own landing (1600-1799 on
+// layer 8, e.g. 1750 = ER LandDefault) stays as it is: the player wants a short landing without running at once
+// there, as in ER. Standing and walking jumps keep the game's landing too.
+constexpr int kLandRunAnim = 904, kLandDashAnim = 905;
+constexpr float kLandRunMinGroundSpeed = 2.8f;  // m/s before the jump (DSR walk < 2, run 4.15, sprint ~6)
+constexpr float kLandRunMinStick = 0.5f;
+constexpr DWORD kLandRunGameLandMs = 150;       // the game's landing animation this close to touchdown: keep it
+constexpr DWORD kLandRunReplayMs = 200;         // the game's -1 on layer 7 this early: start ours once more
+constexpr DWORD kLandRunReportMs = 600;         // diag: speed after the hand-over
+static int g_lrAnim = 0;                         // 904 / 905 while our landing plays
+static DWORD g_lrAt = 0, g_lrHoldMs = 0;
+static float g_lrStartT = 0.f;
+static void* g_lrCtx = nullptr;
+static int g_lrA6 = 0;
+static bool g_lrReplay = false;
+static int g_lrReplays = 0, g_lrLowTicks = 0;
+static DWORD g_lrGameLandAt = 0;                 // the game's own landing animation on layer 8
+static int g_lrGameLandAnim = 0;
+static DWORD g_lrHandAt = 0;                     // diag: hand-over time (0 = no report pending)
+static float g_lrHandV = 0.f, g_lrMinV = 0.f, g_lrV100 = -1.f, g_lrV300 = -1.f;
+static DWORD g_lrMinAt = 0;
+
+static int FloatBits(float f) { int i; memcpy(&i, &f, sizeof(i)); return i; }
+
+static float LandRunSpeed() {  // horizontal proxy speed, -1 = unknown
+    BYTE* ph = ChrPosData();
+    if (!ph) return -1.f;
+    __try {
+        auto proxy = *reinterpret_cast<BYTE**>(ph + 0x38);
+        if (reinterpret_cast<ULONG_PTR>(proxy) < 0x10000) return -1.f;
+        auto v = reinterpret_cast<float*>(proxy + 0x60);
+        return sqrtf(v[0] * v[0] + v[2] * v[2]);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return -1.f;
+    }
+}
+
+static float StickMag() {
+    float m = sqrtf(g_axis[0] * g_axis[0] + g_axis[1] * g_axis[1]);
+    return m > 1.f ? 1.f : m;
+}
+
+static void LandRunPlay(float t) {
+    unsigned long long out[2] = {};
+    for (int layer : {7, 23}) g_origPlayAnim(g_lrCtx, out, g_lrAnim, layer, 0, FloatBits(g_landRunBlendInSec), 0);
+    for (int layer : {7, 23})
+        if (BYTE* rec = AnimLayerRecord(g_lrCtx, layer)) __try {
+            *reinterpret_cast<float*>(rec + 0x5C) = t;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+static void LandRunEnd(const char* why, bool endAnim, float blend) {
+    DWORD now = GetTickCount();
+    float v = LandRunSpeed();
+    if (endAnim && g_lrCtx && g_origPlayAnim) {
+        unsigned long long out[2] = {};
+        for (int layer : {7, 23}) g_origPlayAnim(g_lrCtx, out, -1, layer, 0, FloatBits(blend), 0);
+    }
+    Log("[%7lu ms] land-to-run: %d ended after %lu ms (%s), speed %.2f m/s", now - g_t0, g_lrAnim, now - g_lrAt, why, v);
+    g_lrAnim = 0;
+    g_lrReplay = false;
+    if (kDiag && endAnim) {
+        g_lrHandAt = now ? now : 1;
+        g_lrHandV = v;
+        g_lrMinV = 1e9f;
+        g_lrV100 = g_lrV300 = -1.f;
+    }
+}
+
+static void LandRunOnTouchdown(const char* how) {
+    if (!g_landRunOn || !g_origPlayAnim || !g_momCtx || g_momAtk || g_airAtkState != kAtkNone) return;
+    if (g_momAnim != kJumpAnimMoving && g_momAnim != kJumpAnimVanilla) return;  // standing jump: the game's landing
+    DWORD now = GetTickCount();
+    float mag = StickMag();
+    const char* skip = nullptr;
+    if (g_lrGameLandAt && now - g_lrGameLandAt < kLandRunGameLandMs) skip = "the game's own landing after a longer fall";
+    else if (mag < kLandRunMinStick) skip = "stick not held";
+    else if (g_jumpGroundSpeed < kLandRunMinGroundSpeed) skip = "walking jump";
+    if (skip) {
+        Log("[%7lu ms] land-to-run: skipped (%s; jump %d, stick %.2f, speed before %.2f, game landing %d)", now - g_t0, skip,
+            g_momAnim, mag, g_jumpGroundSpeed, g_lrGameLandAt && now - g_lrGameLandAt < kLandRunGameLandMs ? g_lrGameLandAnim : 0);
+        return;
+    }
+    bool sprintKey = g_rollKey > 0 && g_keyDown[g_rollKey];
+    bool dash = g_momAnim == kJumpAnimVanilla && sprintKey;
+    g_lrAnim = dash ? kLandDashAnim : kLandRunAnim;
+    g_lrStartT = dash ? g_landDashStartSec : g_landRunStartSec;
+    g_lrHoldMs = dash ? g_landDashHoldMs : g_landRunHoldMs;
+    g_lrCtx = g_momCtx;
+    g_lrA6 = g_momA6;
+    g_lrAt = now;
+    g_lrReplays = g_lrLowTicks = 0;
+    g_lrReplay = false;
+    g_lrHandAt = 0;
+    g_jumpEnded = true;  // CancelLandingRollIfIdle must not end it
+    g_airJumpAt = 0;     // air control off (it would still nudge the position until 950 ms)
+    float v = LandRunSpeed();
+    LandRunPlay(g_lrStartT);
+    Log("[%7lu ms] land-to-run: %d from %.2f s (%s; jump %d, stick %.2f, speed before the jump %.2f, now %.2f, sprint key %d)",
+        now - g_t0, g_lrAnim, g_lrStartT, how, g_momAnim, mag, g_jumpGroundSpeed, v, sprintKey ? 1 : 0);
+}
+
+// Game requests (PlayAnimDetour, before the call). Our own requests go straight to g_origPlayAnim and do not come here.
+static void LandRunOnPlayAnim(void* ctx, int anim, int layer) {
+    if (!g_landRunOn || !ctx || ctx != g_momCtx) return;
+    DWORD now = GetTickCount();
+    if (layer == 8 && anim >= 0 && anim % 10000 >= 1600 && anim % 10000 < 1800) {  // the game's own landing
+        g_lrGameLandAt = now ? now : 1;
+        g_lrGameLandAnim = anim;
+        if (g_lrAnim && now - g_lrAt < kLandRunGameLandMs) LandRunEnd("the game started its own landing", true, 0.1f);
+        return;
+    }
+    if (!g_lrAnim || layer != 7) return;
+    if (anim == -1 && now - g_lrAt < kLandRunReplayMs && g_lrReplays < 1) {
+        g_lrReplay = true;  // restarted in the next tick, from where it would be now
+        return;
+    }
+    char why[48];
+    sprintf_s(why, "the game took layer 7: %d", anim);
+    LandRunEnd(why, false, 0.f);
+}
+
+static void LandRunTick() {
+    DWORD now = GetTickCount();
+    if (g_lrAnim) {
+        if (g_lrReplay) {
+            g_lrReplay = false;
+            ++g_lrReplays;
+            float t = g_lrStartT + (now - g_lrAt) / 1000.f;
+            LandRunPlay(t);
+            Log("[%7lu ms] land-to-run: the game ended %d after %lu ms - started again from %.2f s", now - g_t0, g_lrAnim,
+                now - g_lrAt, t);
+        }
+        if (StickMag() < 0.2f) {
+            if (++g_lrLowTicks >= 2) { LandRunEnd("stick released", true, g_landRunBlendOutSec); return; }
+        } else {
+            g_lrLowTicks = 0;
+        }
+        if (now - g_lrAt >= g_lrHoldMs) LandRunEnd("hand-over to the game's locomotion", true, g_landRunBlendOutSec);
+        return;
+    }
+    if (!kDiag || !g_lrHandAt) return;
+    DWORD t = now - g_lrHandAt;
+    float v = LandRunSpeed();
+    if (v >= 0.f && v < g_lrMinV) { g_lrMinV = v; g_lrMinAt = t; }
+    if (t >= 100 && g_lrV100 < 0.f) g_lrV100 = v;
+    if (t >= 300 && g_lrV300 < 0.f) g_lrV300 = v;
+    if (t >= kLandRunReportMs) {
+        Log("[%7lu ms] land-to-run: speed after the hand-over: at it %.2f, +100 ms %.2f, +300 ms %.2f, +%lu ms %.2f, lowest %.2f at +%lu ms",
+            now - g_t0, g_lrHandV, g_lrV100, g_lrV300, t, v, g_lrMinV, g_lrMinAt);
+        g_lrHandAt = 0;
+    }
 }
 
 // --- Sonda fizyki skoku (tylko odczyt) --------------------------------------------------------

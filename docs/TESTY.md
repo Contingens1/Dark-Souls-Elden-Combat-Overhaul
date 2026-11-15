@@ -5,14 +5,21 @@ Stan: 2026-11-15 wieczór, po teście gracza (skok, bronie unikalne, Gwyn). **To
 ## Jak uruchomić
 
 - **Prawie wszystko:** `dist\mods\bossy_nightreign\launch_test_all.bat`.
-  - DLL ma to samo co wydanie 0.5.2, plus włączony nowy skok (punkt 1).
+  - DLL ma to samo co wydanie 0.5.2, plus nowe lądowanie po skoku (punkt 1).
   - Zawiera wszystkich przerobionych bossów: Artoriasa, Capra, Gaping, Centipede, Stray i Gwyna.
 - **Wyjątek, punkt 7 (Centipede):** `dist\mods\c0000_er_engine\launch_er_engine.bat` (sam mod, bez bossów).
 - Gdy coś jest nie tak: **F8** od razu (zapisuje log). W wiadomości napisz mniej więcej godzinę.
 
 ## Do przetestowania
 
-1. **Skok z biegu i ze sprintu: na razie nie testować.** Test 15.11: `FallSpeedFromGround` nic nie zmienił (hamowanie po biegu, rozpędzanie od nowa po sprincie, lekki poślizg, przeskok animacji przy dłuższych skokach). Przyczyna jest w lądowaniu, nie w locie. Nowa wersja w przygotowaniu, opis testu pojawi się tutaj.
+1. **Skok: lądowanie w bieg i w sprint** (nowa wersja 15.11 wieczór, ustawienie `LandToRun`). Po skoku z biegu albo sprintu z wychyloną gałką DLL odtwarza lądowanie z ER, które przechodzi w bieg lub sprint, a po ~0,5 s oddaje ruch grze. Poza w locie to teraz pętla lotu z ER.
+   - Z biegu po płaskim, gałka cały czas wychylona: po lądowaniu biegnie dalej, bez zwalniania i bez poślizgu.
+   - Ze sprintu z trzymanym B: po lądowaniu sprintuje dalej, bez ponownego rozpędzania. Z puszczonym B w locie: ląduje w bieg.
+   - Puszczenie gałki zaraz po lądowaniu: postać krótko się zatrzymuje.
+   - Unik albo atak tuż po lądowaniu: działa od razu.
+   - Dłuższy skok (z biegu na niższy poziom): w locie bez przeskoku rąk i nóg. Po wyraźnie dłuższym spadaniu krótkie lądowanie bez natychmiastowego biegu (tak ma być, jak w ER).
+   - Skok z miejsca: bez zmian.
+   - Porównanie: `LandToRun=0` w `dist\mods\c0000_er_engine_night\bin\er_engine.ini` (wtedy stare lądowanie; poza w locie zostaje nowa).
 2. ~~Bronie z całym unikalnym zestawem ruchów~~: zaliczone 15.11 (na dole).
 3. **Gwyn** (Kiln of the First Flame), ruchy z Soul of Cinder z DS3. Test 15.11: miecz, płaszcz i ciosy wyglądają dobrze. Zostało:
    - chwyt i rzut działają jak wcześniej;
