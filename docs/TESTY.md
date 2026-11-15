@@ -53,7 +53,16 @@ Stan: 2026-11-15 wieczór, po teście gracza (skok, bronie unikalne, Gwyn). **To
 
 ## Decyzje bez gry
 
-- **Gwyn, faza 2** (gracz 15.11: „jak najbardziej za”): nowe ataki SoC 3022–3032 (pociski, wielki atak, kombinacja z wybuchem). Wymagają wspólnej paczki GameParam. Kolejność: najpierw skoki, potem plan fazy 2.
+- **Gwyn, faza 2** (gracz 15.11: „jak najbardziej za”): nowe ataki SoC (piorun w ziemię, włócznia pioruna, burza piorunów, kombinacja z wybuchem).
+  - Decyzje 15.11: faza 1 = Gwyn z DS1, faza 2 = cały SoC, przejście przy 0 HP z odnowieniem paska.
+  - Etap 0 zrobiony bez gry, **nic do testowania**. Launcher bierze teraz parametry bossów ze wspólnego pliku `files_bosses_param` (dziś identyczny z plikiem Artoriasa, więc Artorias działa jak dotąd).
+  - Etap 1 po zakończeniu pracy nad skokiem.
+  - Otwarte pytania:
+    - kolor piorunów (złoty Sunlight Spear czy niebieski);
+    - rozmiar wybuchów (11,5 m jak w DS3 czy dopasowany do efektu);
+    - burza: 12 czy 24 pioruny;
+    - dodatki (doskok, ciosy z opóźnieniem, buff po chwycie);
+    - czy Gwyn ma wejść do wydania.
 - **Postura i cios krytyczny po przełamaniu** (jak w ER): czy zaczynamy od Black Knighta? Wynik analizy: animacja 2100 Black Knighta ma w TAE zdarzenia JumpTable 41 i typ 67, których zwykłe animacje nie mają. Hipoteza: „można wykonać ripostę”. Test: przełącznik w nocnej DLL, który po kilku trafieniach zleca 2100 najbliższemu Black Knightowi.
 
 ## Zaliczone ostatnio

@@ -44,6 +44,10 @@ Writes:
   dist/mods/bossy_nightreign/files_c4100_v2/chr/c4100.anibnd.dcx  (adds / replaces 3016 in place;
       rerun after every `nr_boss_port.py --install`, which rewrites the anibnd)
 
+The param rows alone (apply_params) are also stacked with the rows of other bosses by tools/boss_gameparam.py
+(one shared GameParam for the test launcher, files_bosses_param; Mod Engine 2 takes the whole parambnd from the
+first mod folder that has one, so two boss packages with their own GameParam would hide each other).
+
   python tools/artorias_phase2.py [--hp 880] [--dry-run]               # main package files_c4100_v2
   python tools/artorias_phase2.py --tag _v2_test [--easy]              # test package files_c4100_v2_test
 """
@@ -239,7 +243,15 @@ def clone_row(sf, param, src_id: int, new_id: int, name: str):
 
 
 def build_params(sf, hp: int, anim_offset: int, fx: bool = True, easy: bool = False) -> object:
+    """The boss package's GameParam: the main mod's GameParam (lock-on camera) + the Artorias rows."""
     bnd = read_binder(sf.BND3, str(PARAM_SRC))
+    apply_params(sf, bnd, hp, anim_offset, fx, easy)
+    return bnd
+
+
+def apply_params(sf, bnd, hp: int, anim_offset: int, fx: bool = True, easy: bool = False) -> None:
+    """Write the Artorias rows into an open GameParam binder (also used by tools/boss_gameparam.py, which stacks
+    the rows of several bosses on the main mod's GameParam)."""
     files = {ntpath.basename(str(f.Name)).lower(): f for f in bnd.Files}
 
     def open_param(file_name: str, def_name: str):
@@ -356,7 +368,6 @@ def build_params(sf, hp: int, anim_offset: int, fx: bool = True, easy: bool = Fa
 
     for f, p in changed:
         f.Bytes = to_memory(p.Write())
-    return bnd
 
 
 def jt_of(ev):

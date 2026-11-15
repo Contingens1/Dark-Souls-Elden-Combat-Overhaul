@@ -86,7 +86,7 @@ Stan na 2026-11-15 (po wydaniu 0.5.2). Skrócona wersja: tylko to, co jest aktua
 
 **Test gracza 2026-11-15, po południu (nocna DLL 0.5.2 + `FallSpeedFromGround=1`, `launch_test_all.bat`):**
 - **Działa:** Quelaag's Furysword i Dark Silver Tracer (zwykłe ataki unikalne, dodane z grupy broni; atak po przewrocie). Atak z biegu DST = oryginał DS1 (DST to w DSR sztylet, grupa 20, klip `a20_4500`).
-- **Gwyn (SoC):** wygląd i ciosy dobre; chwyt niesprawdzony. Log walki (244–340 s): 3019, łańcuchy DS1 (3000 → 3003, 3012 → 3014/3015), 3006/3023, nowa kombinacja SoC 3000 → 3011. Gracz chce fazy 2 (ataki 3022–3032).
+- **Gwyn (SoC):** wygląd i ciosy dobre; chwyt niesprawdzony. Log walki (244–340 s): 3019, łańcuchy DS1 (3000 → 3003, 3012 → 3014/3015), 3006/3023, nowa kombinacja SoC 3000 → 3011. Gracz chce fazy 2 (ataki 3022–3032). Decyzje 15.11 (faza 1 = DS1, przejście przy 0 HP) i etap 0: §6c.
 - **Skok: bez poprawy.** Pomiar z logu: w locie prędkość jest już dobra (bieg 4,4 m/s, sprint 6,4), hamuje lądowanie. Gra uruchamia lokomocję od zera: bieg 4,4 → 1,2 m/s i z powrotem 4,15 po ~0,4 s; sprint (B trzymany) 6,4 → 2,9 i sprint wraca po ~0,45 s. Na lądowaniu gra nie zleca nic na warstwie 7, tylko kończy spadanie na 8/24. Przeskok animacji: klip ER kończymy po 0,66 s, potem gra pokazuje pozę spadania DSR `1550` (warstwy 8/24), a przy spadaniu > ~0,4 s jeszcze lekkie lądowanie `1750` (zatrzymanie, ruch od 0,37 s). Klipy ER do naprawy (repozytorium, format DSR): `202040` Jump_Loop, `202115` Land_To_Run (3,3 → 4,7 m/s), `202125` Land_To_Dash_Light (1,2 → 6,5 m/s), `004080` FallJumpStart. Lekkie / średnie / ciężkie lądowanie gry (1750 / 1755 / 1760) to już klipy ER (`004200` LandDefault, `202130`, `202140`); gracz: po dłuższym spadaniu krótkie lądowanie bez natychmiastowego biegu jest w porządku.
 - **Poprawka (do testu, paczka nocna; migawka sprzed: `work\JUMP_LAND_BEFORE_2026-11-15_STABLE\`):** `tools\add_land_anims.py` (przerobiony: cel = `files_c0000_night`, nie rusza 1790) dodaje 904 ← `202115`, 905 ← `202125` (TAE = klon 1790 bez JT7/JT8, okna ER) i podmienia `a00_1550.hkx` na `202040` (nowy `files_c0000_night\chr\c0000_a00_lo.anibnd.dcx`). DLL `[Jump] LandToRun=1` (`LandRunOnTouchdown`, `LandRunTick`): przy lądowaniu po 902/900 z gałką ≥ 0,5 i prędkością przed skokiem ≥ 2,8 m/s odtwarza 904 od 0,15 s albo 905 od 0,30 s (sprint tylko z trzymanym B) na 7/23 (start przez `+0x5C`), po 450 / 500 ms kończy z przejściem 0,2 s. Własne lądowanie gry na warstwie 8 (1600–1799) wygrywa. Puszczona gałka kończy od razu; -1 gry w ciągu 200 ms = jeden restart. Log diag: `land-to-run: speed after the hand-over` (czy bieg gry zdążył się rozpędzić).
 - **Test v1 (gracz, wieczór 15.11):** fizyka dobra (bez hamowania, po płaskim i w dół bez poślizgu); log: po oddaniu ruchu grze +100 ms ~4,6 m/s, +300 ms ~4,2 (bieg gry gotowy). Zostały: (1) przeskok rąk i broni w locie: w ER koniec klipu skoku = początek `202040` (dłonie i oś `R_Weapon` zgodne), a my ucinaliśmy w 0,66 s (dłoń 26 cm dalej z przodu, broń obrócona); (2) poślizg po skoku na wyższy poziom: pierwsze ~80 ms po starcie 904/905 od `+0x5C` dają skok prędkości z przejścia (905: 2,5 → 9,9 → 13,6 → 21 → 51 m/s, ~1 m, gdy klip skoku jeszcze wygasa; 904 do 15 m/s).
@@ -179,6 +179,48 @@ Cel gracza: Artorias jako szczytowy boss — szybszy, trudniejszy do unikania, d
 
 - **Gaping Dragon — stan z 13.11** (od 14.11 zastąpiony wersją z AI NR, `launch_test_all.bat`; `files_c5260\chr\c5260.anibnd.dcx`, 2026-11-13 03:00): tylko animacje ataków 3000–3010 podmienione na klipy NR c7700, zdarzenia TAE przesunięte kotwicami z okien trafień; **AI oryginalne** (NR 770000 zdekompilowane, nieprzeniesione), nowe ruchy NR (9100–9171, 4100–4123) nieprzeniesione. NR ma te same ruchy z tym samym root motion i prawie tymi samymi długościami (różnice póz 42–264 cm), więc brak widocznej zmiany jest zgodny z danymi. Jedyne wyraźne różnice: 3003 krótszy o 2 s (9,83 → 7,83 s), szarża 3004 krótsza o ~4 s (16,00 → 11,87 s) na tym samym dystansie 25 m. DSR ma 2–4 okna obrażeń na atak, NR jedno — zostały okna DSR (w 3003, 3005, 3006, 3010 mogą nie pasować do nowej animacji). Liczby: `analysis\nr_port_c5260_metrics.txt`. Wniosek: żeby boss był „inny", trzeba przenieść AI 770000 i nowe ruchy NR — sama podmiana klipów prawie nic nie daje.
 - **Centipede Demon:** ataki 3000–3009 z klipów NR c7710 (różnice póz 8–150 cm; 3002, 3003 dłuższe, 3009 krótszy), AI oryginalne. Błędy z testu — §3, zadanie §5 pkt 13. Liczby: `analysis\nr_port_c5200_metrics.txt`.
+
+## 6c. Gwyn (c5370) z Soul of Cinder (DS3) — paczka testowa i faza 2
+
+- **Paczka:** `files_c5370_soc` (`launch_test_all.bat`). 17 ataków fazy Gwyna SoC (DS3 c5280, grupa a005) pod numerami DS1, AI z kombinacjami SoC (`tools\make_gwyn_ai.py`). Test 15.11: wygląd i ciosy dobre, różnice względem DS1 małe (zgodnie z danymi).
+- **Odtworzenie anibnd (sprawdzone 15.11: wynik identyczny bajt w bajt):**
+  - `python tools\nr_boss_port.py --src-game ds3 --nr ds3c5280 --dsr c5370 --tag _soc --pair 5003000:3000 … --pair 5003021:3021 --align-rest 15 --keep-dsr-bones "Cloth|Hair|hair|Mantle|Beard|^[LR]_s" --bone-alias "L ForeTwist=L_ForeArmTwist" --bone-alias "R ForeTwist=R_ForeArmTwist" --ignore-judge 900 --install`, gdzie pary to 3000–3003, 3006, 3008–3016, 3018, 3019, 3021;
+  - potem `python tools\widen_hits.py --anibnd dist\mods\bossy_nightreign\files_c5370_soc\chr\c5370.anibnd.dcx --anims 3000 3001 3002 3003 3009 3010 3011 3012 3013 3014 3015 3016 3018 3019 3021 --before 0.03 --after 0.10` (tylko na świeżym anibnd);
+  - AI: `python tools\make_gwyn_ai.py`;
+  - wymaga `tools\ds3_extract.py c5280` i `tools\ds3_unpack_anibnd.py c5280`.
+- **Decyzje gracza 15.11 (faza 2):**
+  - faza 1 = Gwyn z DS1 (oryginalne klipy i AI);
+  - faza 2 = cały SoC jako zestaw 130xx przez `animIdOffset 10000`;
+  - przejście przy 0 HP z odnowieniem paska jak u Artoriasa (wymaga uogólnienia `ArtoriasPhaseTick` w DLL na tabelę bossów).
+- **Faza Gwyna w DS3 (dane):**
+  - znacznik fazy = SpEffect 5408 z `animIdOffset 5000000`;
+  - przejście = skrypt mapy: nieśmiertelność do 5% HP → 20010 (opada na kolano) + 20005 (wbija miecz, fala ognia 11,5 m, pełne HP SpEffektem 12119); 12123 sprawia, że faza zaczyna się kombinacją z wybuchem;
+  - nowe ruchy: 3022 piorun lewą ręką w ziemię przed sobą, 3023 włócznia pioruna (naprowadzana, 30 m), 3024 burza (piorun w górę → 24 kule → naprowadzane pioruny; przed nią odskok 6001), 3030 cztery cięcia + miecz wbity w ziemię i wybuch 11,5 m wokół bossa;
+  - 3025 / 3026 (dobicia po chwycie) Gwyn DS1 już ma (3300 / 3310).
+- **Numery w DSR:** wolne u Gwyna (enemyCommon.esd 3000–3029): 3007, 3017 (bez trafień), 3022, 3024–3029. Plan: 3022 = piorun w ziemię, 3024 = włócznia, 3025 = burza, 3026 = kombinacja z wybuchem, 3028 + 3029 = przejście (20010 + 20005). DSR nazywa wpisy 13xxx `a01_3xxx.hkx` (c2360); `nr_boss_port.py` umie dziś tylko `a00_`.
+- **Efekty:** FFX DS3 nie działają w DSR. W Kiln są wczytane czary gracza (CommonEffects: włócznie 20131–20133, trafienia 20230 / 20236, Wrath of the Gods 20176 / 20276, piorun Ornsteina 23141) oraz efekty Gwyna (`m18_00`: 15371 / 15373 / 15374 wybuch chwytu / 15375 smuga). Dummypoly DSR c5370: 2 lewa dłoń, 5 / 6 miednica, 8 stały punkt 0,89 m przed bossem, 230 ziemia 0,5 m przed bossem, 10–13 ostrze.
+- **Wolne wiersze dla Gwyna:**
+
+  | Parametr | Wiersze |
+  |---|---|
+  | SpEffect | 53700–53719 |
+  | Bullet | 53700–53799 |
+  | AtkParam_Npc | 537030–537099 |
+  | BehaviorParam | 253700400–253700599 |
+  | SpEffectVfx | 232–240 |
+
+  Artorias zajmuje SpEffect 5512–5515, 5531–5533 i SpEffectVfx 220–231, 241.
+- **Wspólny GameParam bossów (15.11):**
+  - Problem: ME2 bierze cały `GameParam.parambnd.dcx` z pierwszego folderu na liście (bez scalania), a paczka Artoriasa ma własny.
+  - `python tools\boss_gameparam.py` = GameParam głównego moda (lockcam) + `artorias_phase2.apply_params` (opcje `files_c4100_v2_test`) + `gwyn_phase2.apply_params` (gdy powstanie), z kontrolą kolizji wierszy i listą `boss_rows.txt`; `--check <plik>` porównuje.
+  - Zapis: `dist\mods\bossy_nightreign\files_bosses_param\`, **pierwszy** w `config_test_all.toml`.
+  - Dziś identyczny bajt w bajt z GameParam testowym Artoriasa.
+  - Uruchamiać po każdej zmianie GameParam głównego moda, Artoriasa albo Gwyna.
+  - Wydanie nadal bierze GameParam z `files_c4100_v2`.
+- **Migawka sprzed fazy 2:** `work\GWYN_SOC_PRE_PHASE2\`. Dane DS3 i skrypty analizy: `work\gwyn_phase2\`.
+- **Etap 0 (bez gry) zrobiony 15.11.**
+  - Etap 1 (zestaw 130xx, przejście, AI DS1 / SoC, DLL) czeka na koniec pracy nad skokiem w `native\er_engine\`.
+  - Potem kolejno: włócznia + piorun w ziemię, kombinacja z wybuchem, burza; każdy etap z testem w grze.
 
 ## 7. Offsety i funkcje (Ghidra)
 
