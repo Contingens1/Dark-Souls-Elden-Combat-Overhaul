@@ -2855,10 +2855,13 @@ static void AirTurnToStick(BYTE* ph, float dt) {
         float mapped = 0.f;
         const char* mapHow = "none";
         bool mapOk = StickWorldYaw(&mapped, &mapHow);
+        // Test 2026-11-15 night (v2): in the air the input ctx vector stays frozen at the take-off direction (0.42 0.91
+        // for 0.6 s while the stick went 0.12 -0.99 -> 0.90 0.44), so it always equals the facing and nothing turned.
+        // The stick mapped with the ground camera term is used first; the frozen vector only without a mapping.
         float want;
         const char* how;
-        if (wx * wx + wz * wz >= 0.01f) { want = atan2f(-wx, -wz); how = "input ctx"; }
-        else if (mapOk) { want = mapped; how = mapHow; }
+        if (mapOk) { want = mapped; how = mapHow; }
+        else if (wx * wx + wz * wz >= 0.01f) { want = atan2f(-wx, -wz); how = "input ctx (frozen in the air)"; }
         else want = 0.f, how = nullptr;
         DWORD now = GetTickCount();
         bool logNow = kDiag && now - g_airTurnLogAt > 250;
@@ -2876,9 +2879,10 @@ static void AirTurnToStick(BYTE* ph, float dt) {
         float y = WrapPi(cur + turn);
         *reinterpret_cast<float*>(ph + 0x4) = y;
         if (logNow)
-            Log("[%7lu ms] rozped: obrot w powietrzu %.2f -> %.2f rad, cel %.2f (%s; wektor gry %.2f %.2f, mapa %.2f %s, osie %.2f %.2f), "
-                "zostalo %.0f deg, ped %.2f %.2f", now - g_t0, cur, y, want, how, wx, wz, mapped, mapOk ? "" : "(brak)", g_axis[0],
-                g_axis[1], fabsf(WrapPi(d - turn)) * 57.29578f, g_mom[0], g_mom[1]);
+            Log("[%7lu ms] rozped: obrot w powietrzu %.2f -> %.2f rad, cel %.2f (%s; wektor gry %.2f %.2f, mapa %.2f %s, osie %.2f %.2f, "
+                "blad lustro %.1f / obrot %.1f, kamera sprzed %lu ms), zostalo %.0f deg, ped %.2f %.2f", now - g_t0, cur, y, want, how,
+                wx, wz, mapped, mapOk ? "" : "(brak)", g_axis[0], g_axis[1], g_stickErrMir, g_stickErrRot, now - g_stickCamAt,
+                fabsf(WrapPi(d - turn)) * 57.29578f, g_mom[0], g_mom[1]);
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
