@@ -28,7 +28,7 @@ Stan: 2026-11-15 noc, po teście bossów; paczka nocna = `main` (ze sterowaniem 
 ## Na bieżąco, przy zwykłej grze
 
 - **Zawieszenie postaci** (stoi w miejscu mimo wciśniętego kierunku): F8 od razu.
-- **Paczka 0.5.3:** jeśli zagrasz z zainstalowanej paczki (launcher wydania zaproponuje aktualizację z 0.5.2), napisz, czy wszystko działa jak w wersji testowej.
+- **Paczka 0.5.4:** jeśli zagrasz z zainstalowanej paczki (launcher wydania zaproponuje aktualizację), napisz, czy wszystko działa jak w wersji testowej. Nowe w niej: obrót w powietrzu przy skoku w dół, Capra i Gaping (w fazie testów).
 
 ## Znane problemy (nie trzeba zgłaszać)
 

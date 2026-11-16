@@ -1,6 +1,6 @@
 # ER-Inspired DSR Remake v{VERSION} — Dark Souls Remastered
 
-Elden Ring-style movement, dodging, jumping and drinking Estus in Dark Souls Remastered. Since 0.4.0 also the first reworked boss: Knight Artorias, with a second phase and attacks from Nightreign.
+Elden Ring-style movement, dodging, jumping and drinking Estus in Dark Souls Remastered. Since 0.4.0 also the first reworked boss: Knight Artorias, with a second phase and attacks from Nightreign. Since 0.5.4 Capra Demon and Gaping Dragon are in testing too.
 
 ## Requirements
 
@@ -43,6 +43,19 @@ An update changes only the files in the mod folder — it does not touch the gam
 
 - **Play offline only.** The mod changes how the game works in memory — online play risks a ban. The mod has no network block of its own; before launching, switch Steam to offline mode or set the game to start offline.
 - On a different version of `DarkSoulsRemastered.exe` the hooks will not install and the DLL mechanics will not work (log: `bin\er_engine.log`).
+
+## New in 0.5.4
+
+Test version (pre-release): fixes checked in the game, but bugs may still appear.
+
+- **Control on long jumps down.** In the air the character keeps turning toward the stick, slowly as in Elden Ring (60°/s), so on a long jump down the control no longer disappears after a moment. Turn speed: `AirTurnSpeed` in section `[Jump]` of `bin\er_engine.ini` (`0` = off).
+- **Two new bosses in testing** (section "Bosses in testing"): Capra Demon with Omen Killer attacks from Elden Ring and Gaping Dragon with a new AI modelled on Nightreign. They passed a test without critical bugs, but may still need polishing. Reports are welcome.
+
+## Bosses in testing *(since 0.5.4)*
+
+- **Capra Demon** (Lower Undead Burg) — some strikes replaced with Omen Killer attacks from Elden Ring (among them the strike with both cleavers); the tail moves as in the original. AI from Dark Souls.
+- **Gaping Dragon** (Depths) — a new AI modelled on Nightreign: the attack is chosen by the player's distance and side, pauses between attacks, turning during an attack, acid spit below 70% HP. The wave after a jump hits at the moment of impact, the charge hurts once.
+- To turn one off: delete `c2240.anibnd.dcx` (Capra) from `files\chr`, or `c5260.anibnd.dcx` together with `files\script\m10_00_00_00.luabnd.dcx` (Gaping Dragon). The updater restores them on the next update.
 
 ## New in 0.5.3
 
@@ -159,7 +172,8 @@ Test version (pre-release): fixes checked in the game, but bugs may still appear
 
 - **Player Animations Repository** (Nexus Mods, DSR #748) — Elden Ring animations ported to the DSR skeleton, used in the `files\chr\*.anibnd.dcx` files. **Do not redistribute this package further without the repository authors' permission.**
 - **DSROmniRoll** (Nexus Mods, DSR #1378) and **Simple Estus Walking** — ideas that our own implementations of rolling in all directions and drinking while moving are based on. Their files are not part of this package.
-- **Elden Ring Nightreign** (FromSoftware) — second-phase Artorias attack animations ported to his DSR skeleton (`files\chr\c4100.anibnd.dcx`).
+- **Elden Ring Nightreign** (FromSoftware) — second-phase Artorias attack animations ported to his DSR skeleton (`files\chr\c4100.anibnd.dcx`); Gaping Dragon attack animations and AI logic from Nightreign as the model for `files\chr\c5260.anibnd.dcx` and `files\script\m10_00_00_00.luabnd.dcx`.
+- **Elden Ring** (FromSoftware) — Omen Killer attack animations ported to the Capra Demon skeleton (`files\chr\c2240.anibnd.dcx`).
 - **Mod Engine 2** (soulsmods; DSR-capable build from AltimorFP, distributed in the Nikolay97 package) — mod loading (not included).
 - **MinHook** (Tsuda Kageyu) — hooking library compiled into `er_engine.dll`.
 

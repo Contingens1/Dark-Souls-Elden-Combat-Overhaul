@@ -1,6 +1,6 @@
 ﻿# ER-Inspired DSR Remake v{VERSION} — Dark Souls Remastered
 
-Ruch, uniki, skok i picie estusa w stylu Elden Ringa w Dark Souls Remastered. Od 0.4.0 także pierwszy przerobiony boss: Rycerz Artorias z drugą fazą i atakami z Nightreign.
+Ruch, uniki, skok i picie estusa w stylu Elden Ringa w Dark Souls Remastered. Od 0.4.0 także pierwszy przerobiony boss: Rycerz Artorias z drugą fazą i atakami z Nightreign. Od 0.5.4 w fazie testów także Capra Demon i Gaping Dragon.
 
 ## Wymagania
 
@@ -43,6 +43,19 @@ Aktualizacja zmienia wyłącznie pliki w folderze moda — nie dotyka gry ani Mo
 
 - **Graj wyłącznie offline.** Mod zmienia działanie gry w pamięci — gra online grozi banem. Mod nie ma własnej blokady sieci; przed uruchomieniem przełącz Steama w tryb offline albo ustaw w grze start w trybie offline.
 - Na innej wersji `DarkSoulsRemastered.exe` hooki się nie założą i mechaniki z DLL nie będą działać (log: `bin\er_engine.log`).
+
+## Nowe w 0.5.4
+
+Wersja testowa (pre-release): poprawki sprawdzone w grze, ale mogą pojawić się błędy.
+
+- **Sterowanie przy dłuższym skoku w dół.** W locie postać obraca się w stronę gałki przez cały czas, wolno jak w Elden Ringu (60°/s), więc przy dalekim skoku w dół sterowanie już nie znika po chwili. Tempo obrotu: `AirTurnSpeed` w sekcji `[Jump]` w `bin\er_engine.ini` (`0` = wyłączone).
+- **Dwóch nowych bossów w fazie testów** (sekcja „Bossowie w fazie testów”): Capra Demon z atakami Omen Killera z Elden Ringa i Gaping Dragon z nowym AI na wzór Nightreign. Przeszli test bez krytycznych błędów, ale mogą jeszcze wymagać dopracowania. Zgłoszenia mile widziane.
+
+## Bossowie w fazie testów *(od 0.5.4)*
+
+- **Capra Demon** (Miasto Nieumarłych, niższa część) — część ciosów zastąpiona atakami Omen Killera z Elden Ringa (m.in. cios oboma tasakami); ogon porusza się jak w oryginale. AI z Dark Souls.
+- **Gaping Dragon** (Głębiny) — nowe AI na wzór Nightreign: atak dobierany do odległości i strony gracza, przerwy między atakami, obrót w trakcie ataku, plucie kwasem poniżej 70% HP. Fala po skoku trafia w chwili uderzenia, szarża rani raz.
+- Wyłączenie: usuń z `files\chr` plik `c2240.anibnd.dcx` (Capra) albo `c5260.anibnd.dcx` razem z `files\script\m10_00_00_00.luabnd.dcx` (Gaping Dragon). Aktualizator przywróci je przy następnej aktualizacji.
 
 ## Nowe w 0.5.3
 
@@ -159,7 +172,8 @@ Wersja testowa (pre-release): poprawki sprawdzone w grze, ale mogą pojawić si�
 
 - **Player Animations Repository** (Nexus Mods, DSR #748) — animacje Elden Ringa przeniesione na szkielet DSR, użyte w plikach `files\chr\*.anibnd.dcx`. **Nie publikuj tej paczki dalej bez zgody autorów tego repozytorium.**
 - **DSROmniRoll** (Nexus Mods, DSR #1378) i **Simple Estus Walking** — pomysły, na których wzorowane są własne implementacje przewrotu we wszystkie strony i picia w ruchu. Ich pliki nie są częścią tej paczki.
-- **Elden Ring Nightreign** (FromSoftware) — animacje ataków Artoriasa drugiej fazy przeniesione na jego szkielet z DSR (`files\chr\c4100.anibnd.dcx`).
+- **Elden Ring Nightreign** (FromSoftware) — animacje ataków Artoriasa drugiej fazy przeniesione na jego szkielet z DSR (`files\chr\c4100.anibnd.dcx`); animacje ataków i logika AI Gaping Dragona z Nightreign jako wzór dla `files\chr\c5260.anibnd.dcx` i `files\script\m10_00_00_00.luabnd.dcx`.
+- **Elden Ring** (FromSoftware) — animacje ataków Omen Killera przeniesione na szkielet Capra Demona (`files\chr\c2240.anibnd.dcx`).
 - **Mod Engine 2** (soulsmods; wersja z obsługą DSR od AltimorFP, z paczki Nikolay97) — ładowanie modów (nie jest dołączony).
 - **MinHook** (Tsuda Kageyu) — biblioteka hooków wkompilowana w `er_engine.dll`.
 

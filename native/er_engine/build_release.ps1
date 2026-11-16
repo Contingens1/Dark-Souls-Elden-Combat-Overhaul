@@ -6,10 +6,16 @@
 # section 6a) ships inside files\: its anibnd and map AI script are added, and its GameParam (= the main mod's
 # GameParam + the boss rows, built by tools\artorias_phase2.py) replaces the main one. The DLL turns the boss
 # logic on when files\chr\c4100.anibnd.dcx is present ([Bosses] ArtoriasPhase2=2).
-# Usage: powershell -ExecutionPolicy Bypass -File native\er_engine\build_release.ps1 [-Version 0.4.0] [-SkipInstallerTest]
+# Since 0.5.4 two more reworked bosses ship as test versions (game files only, no DLL logic, no params): Capra Demon
+# with Omen Killer attacks from Elden Ring (dev package files_c2240_omen) and Gaping Dragon with an AI modelled on
+# Nightreign (files_c5260_ai: anibnd + the Depths map AI script m10_00).
+# -DllSource builds the DLL from another er_engine.cpp (e.g. a clean worktree of main) when the working folder holds
+# uncommitted experiments; its folder must hold the headers it includes.
+# Usage: powershell -ExecutionPolicy Bypass -File native\er_engine\build_release.ps1 [-Version 0.4.0] [-DllSource <path>] [-SkipInstallerTest]
 param(
-    [string]$Version = '0.5.3',
+    [string]$Version = '0.5.4',
     [string]$Repo = 'Contingens1/ER-Inspired_DSR_Remake',   # GitHub repo whose latest release setup\Update.ps1 checks
+    [string]$DllSource = '',
     [switch]$SkipInstallerTest
 )
 $ErrorActionPreference = 'Stop'
@@ -21,6 +27,14 @@ $mh = 'C:\Users\nemos\workspace\toolsy\minhook'
 $dev = Join-Path $root 'dist\mods\c0000_er_engine'
 $devBoss = Join-Path $root 'dist\mods\bossy_nightreign\files_c4100_v2'
 $bossFiles = @('chr\c4100.anibnd.dcx', 'script\m12_01_00_00.luabnd.dcx', 'param\GameParam\GameParam.parambnd.dcx')
+$testBossFiles = [ordered]@{   # file in files\ -> dev folder it comes from (bosses in testing, see the header)
+    'chr\c2240.anibnd.dcx'           = 'dist\mods\bossy_nightreign\files_c2240_omen'
+    'chr\c5260.anibnd.dcx'           = 'dist\mods\bossy_nightreign\files_c5260_ai'
+    'script\m10_00_00_00.luabnd.dcx' = 'dist\mods\bossy_nightreign\files_c5260_ai'
+}
+if (-not $DllSource) { $DllSource = Join-Path $PSScriptRoot 'er_engine.cpp' }
+if (-not (Test-Path $DllSource)) { throw "DLL source not found: $DllSource" }
+$DllSource = (Resolve-Path $DllSource).Path
 $devModEngine2 = 'C:\Users\nemos\workspace\toolsy\ModEngine2'   # only for the installer test at the end
 # DarkSoulsRemastered.exe the hooks were made for (docs\PLAN_PROJEKTU.md, section 3). The setup tool compares it.
 $exeSha256 = 'A45AAA36DD2F6CC151670A639EA5547043CF38EA79FF4178B963C6ED71F98D7B'
@@ -32,7 +46,7 @@ New-Item -ItemType Directory -Force "$out\bin", "$out\files", "$out\setup", "$ou
 
 # 1. Release DLL (ER_DIAG=0).
 $vcvars = 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat'
-$cl = "cl /nologo /O2 /MT /W3 /EHsc /LD /DER_DIAG=0 /I`"$mh\include`" `"$PSScriptRoot\er_engine.cpp`" `"$mh\src\buffer.c`" `"$mh\src\hook.c`" `"$mh\src\trampoline.c`" `"$mh\src\hde\hde64.c`" /Fo`"$out\obj\\`" /Fe`"$out\bin\er_engine.dll`" /link /DEF:`"$PSScriptRoot\dinput8.def`" user32.lib"
+$cl = "cl /nologo /O2 /MT /W3 /EHsc /LD /DER_DIAG=0 /I`"$mh\include`" `"$DllSource`" `"$mh\src\buffer.c`" `"$mh\src\hook.c`" `"$mh\src\trampoline.c`" `"$mh\src\hde\hde64.c`" /Fo`"$out\obj\\`" /Fe`"$out\bin\er_engine.dll`" /link /DEF:`"$PSScriptRoot\dinput8.def`" user32.lib"
 cmd /c "`"$vcvars`" >nul && $cl" | Select-String 'error' | ForEach-Object { throw "Compile error: $_" }
 Remove-Item -Recurse -Force "$out\obj"
 Get-ChildItem "$out\bin" -Exclude er_engine.dll | Remove-Item -Force
@@ -68,6 +82,14 @@ foreach ($f in $bossFiles) {
     New-Item -ItemType Directory -Force (Split-Path "$out\files\$f") | Out-Null
     Copy-Item "$devBoss\$f" "$out\files\$f" -Force
 }
+foreach ($f in $testBossFiles.Keys) {
+    $src = Join-Path (Join-Path $root $testBossFiles[$f]) $f
+    if (-not (Test-Path $src)) { throw "Test boss file missing: $src" }
+    if (Test-Path "$out\files\$f") { throw "Test boss file would overwrite a mod file: files\$f" }
+    New-Item -ItemType Directory -Force (Split-Path "$out\files\$f") | Out-Null
+    Copy-Item $src "$out\files\$f" -Force
+}
+"DLL source: $DllSource"
 
 # 3. Mod Engine 2 config. Paths are relative to the file, so it works wherever the folder is unpacked.
 #    The setup tool writes the same file again together with the launcher .bat (which needs the ME2 path).

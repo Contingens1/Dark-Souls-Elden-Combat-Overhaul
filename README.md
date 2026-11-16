@@ -22,14 +22,19 @@ Projekt modyfikacji rozgrywki i silnika dla **Dark Souls: Remastered**, przenosz
 
 ## Bossowie
 
-Przeróbki walk z bossami trwają. Pierwszy przerobiony boss jest już w paczce, kolejne są w planie.
+Przeróbki walk z bossami trwają. W paczce są:
+
+* **Rycerz Artorias** — druga faza z atakami z Nightreign.
+* **Capra Demon** *(w fazie testów, od 0.5.4)* — część ciosów zastąpiona atakami Omen Killera z Elden Ringa.
+* **Gaping Dragon** *(w fazie testów, od 0.5.4)* — nowe AI na wzór Nightreign.
+
+Kolejni bossowie są w planie.
 
 ## Znane problemy
 
 Mod jest w trakcie rozwoju. Poniżej to, co jest znane i jeszcze nie działa jak trzeba:
 
 * **Ataki z wyskoku są niedopracowane.** Przy lądowaniu po atakach w skoku zdarzają się migotania i skoki animacji. Nie wszystkie bronie mają jeszcze pełny zestaw ataków z wyskoku, np. katana i zwykły atak toporem korzystają z zastępczych animacji, a pięści nie mają ataków z wyskoku. R2 ze sprintu i z wyskoku może wchodzić w teren, bo tak samo robi ER.
-* **Sterowność w dłuższym skoku** — poprawka jest w przygotowaniu i wejdzie w najbliższym wydaniu.
 * **Skok przez ścianę (zamierzone, na razie zostaje).** Skok można zacząć przy ścianie i przeniknąć przez nią. Pozwala to na ciekawe skipy, więc na razie nie jest blokowane.
 * **Blok tarczą w sprincie wygląda śmiesznie (zamierzone, na razie zostaje).** Animacja sprintu z ER jest na górnej części ciała, co wygląda nienaturalnie.
 * **Kamera przy namierzeniu:** moby i otoczenie potrafią zasłaniać kamerę, a kamera czasem sama mocno unosi się w górę. Jest to w planie poprawek.
@@ -54,7 +59,8 @@ Gotowe do uruchomienia paczki dla testerów (niewymagające kompilacji kodu) zna
 * **DSROmniRoll** (Nexus Mods, DSR #1378) oraz **Simple Estus Walking** — inspiracje koncepcyjne dla własnych implementacji przewrotu we wszystkie strony i picia w ruchu (ich pliki nie są częścią projektu).
 * **Mod Engine 2** (`soulsmods`) — środowisko ładowania modyfikacji dla Dark Souls: Remastered.
 * **MinHook** (Tsuda Kageyu) — biblioteka hooków wykorzystana w `er_engine.dll`.
-* **Elden Ring Nightreign** (FromSoftware) — animacje ataków drugiej fazy Artoriasa przeniesione do paczki.
+* **Elden Ring Nightreign** (FromSoftware) — animacje ataków drugiej fazy Artoriasa przeniesione do paczki; animacje i logika AI Gaping Dragona jako wzór.
+* **Elden Ring** (FromSoftware) — animacje ataków Omen Killera przeniesione na Capra Demona.
 * **Narzędzia społecznościowe:** SoulsFormats, soulstruct, Ghidra, DS Anim Studio.
 
 **Licencja:** kod projektu (`native/`, `tools/` i skrypty) udostępniany jest na licencji **GPL-3.0** — zob. plik [LICENSE](LICENSE). Licencja nie obejmuje plików gier, animacji z Elden Ringa i Nightreign ani zewnętrznych narzędzi (Mod Engine 2, MinHook, Ghidra itd.), które podlegają własnym licencjom.
