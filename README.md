@@ -1,4 +1,4 @@
-# ER-Inspired DSR Remake
+# Dark Souls: Elden Combat Overhaul
 
 English version: [README-en.md](README-en.md)
 
