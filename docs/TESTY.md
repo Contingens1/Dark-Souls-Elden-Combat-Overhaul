@@ -1,17 +1,24 @@
 # Testy do zrobienia
 
-Stan: 2026-11-16 wieczór, nocna DLL = `main` (ze sprintem przy namierzeniu v3.1) + Gwyn. Wydanie 0.5.5 w przygotowaniu. **To jedyna aktualna lista testów.** Po każdym teście poprawiam ten plik.
+Stan: 2026-11-16 noc, nocna DLL = `main` (z Gwynem) + sprint przy namierzeniu v3.5 (punkt 0). Wydanie 0.5.5 opublikowane. **To jedyna aktualna lista testów.** Po każdym teście poprawiam ten plik.
 
 ## Jak uruchomić
 
 - **Prawie wszystko:** `dist\mods\bossy_nightreign\launch_test_all.bat`.
-  - DLL ma to samo co wydanie 0.5.4, plus diagnostykę, F8, sprint przy namierzeniu v3.1 i dwie fazy Gwyna (punkt 2).
+  - DLL ma to samo co wydanie 0.5.5, plus diagnostykę, F8 i sprint przy namierzeniu v3.5 (punkt 0).
   - Zawiera wszystkich przerobionych bossów: Artoriasa, Capra, Gaping, Centipede, Stray i Gwyna.
 - **Wyjątek, punkt 3 (Centipede):** `dist\mods\c0000_er_engine\launch_er_engine.bat` (sam mod, bez bossów).
 - Gdy coś jest nie tak: **F8** od razu (zapisuje log). W wiadomości napisz mniej więcej godzinę.
 
 ## Do przetestowania
 
+0. **Sprint przy namierzeniu (nocna DLL = v3.5, stan 16.11 noc).** Nic nowego do testu; przy zwykłej grze z namierzeniem zwróć uwagę na zawieszenia (F8 od razu).
+   - Co jest w v3.5 (`launch_test_all.bat`):
+     - **start:** gałka w bok / po skosie — bieg bokiem przez rozpęd (0,4 s), potem obrót i sprint; do tyłu obrót od 0,2 s; prędkość nie spada w trakcie obrotu (DLL tylko ją podnosi);
+     - **namierzenie w trakcie sprintu:** sprint leci dalej, gra przechodzi w tryb namierzenia dopiero, gdy postać po sprincie patrzy na cel (< 20°); przewrót w tym czasie to zwykły przewrót w stronę gałki.
+   - Wyniki: v3.2 „lepiej, fajnie wygląda”; v3.4/v3.5 „wejście w sprint działa”. v3.3 (pomijanie klipu obrotu) i v3.6 (wyłączanie bajtu `ChrCtrl+0x1B0`) dawały zawieszenia — wycofane. Ten bajt to włącznik całego sterowania ruchem, nie samych zawrotów.
+   - **Znane, do poprawy:** przy zdjęciu namierzenia w ruchu (sprint, bieg bokiem, tyłem) gra puszcza zawrót (animacja obrotu ok. 0,7 s z automatu stanów gracza). Następna próba: wyłączać zawrót u źródła (ID animacji obrotu w procedurze obrotu), bez dotykania sterowania ruchem.
+   - Porównanie w `dist\mods\c0000_er_engine_night\bin\er_engine.ini`: `LockOnSprintLockGuard=0` (bez wstrzymania przy namierzeniu w sprincie), `LockOnSprintSpeedHold=0` i `LockOnSprintBackAngle=0` (= v3.1 z wydania 0.5.5).
 1. **Skok, przy okazji** (skok jest zaliczony i jest w 0.5.3; tych przypadków log jeszcze nie obejmował):
    - skok z miejsca;
    - skok z marszu (wolno, gałka lekko wychylona);
