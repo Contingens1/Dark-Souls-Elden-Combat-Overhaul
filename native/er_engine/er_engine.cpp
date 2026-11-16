@@ -490,16 +490,40 @@ static void LockOnSprintPostInput(BYTE* ctx, float dt, void* p3) {
         stamina, roll ? "roll" : "no roll");
 }
 
-// --- Sprint in any direction while locked on (experiment, [Roll] LockOnSprintFree, default 0) ------
-// Known issue (plan §3): with a lock-on target the sprint only runs forward. The input handler raises the
-// sprint (+0x1E4) after the 0.4 s hold in every direction (FUN_140398920 reads only the hold timer +0x260),
-// so the limit sits in the movement code, which keeps the lock-on strafe while p3+0x21D == 0. The handler
-// itself switches the stick into the free-movement frame when +0x21D != 0 (same function, top). Here, while
-// the sprint key is held past the threshold with a lock-on target and a direction, +0x21D is forced to 1
-// before the handler runs (camera stays on the target, the character runs where the stick points, as in ER)
-// and put back when the sprint ends. The diag build logs both values every 250 ms ("lock-on sprint probe")
-// to show whether the game rewrites +0x21D each frame and whether the run speed reaches sprint speed.
+// --- Sprint in any direction while locked on, as in ER ([Roll] LockOnSprintFree, v3 2026-11-16, default 0) ----------
+// Ghidra (notes: docs/nieoficjalne/PLAN_SPRINT_NAMIERZENIE.md): the locomotion controller (ChrCtrl+0x1A8, update
+// FUN_1403a5030) plays the sprint clip only when the move direction against the facing is "forward" (+0x13C == 0), the
+// run speed is reached, the sprint flag (copied from input ctx+0x1E4 by FUN_140378d00) is on and its ramp timer (+0x1B8)
+// is past the threshold. With a lock-on target the character faces the target, so a side / back run never sprints. The
+// input handler raises +0x1E4 after the 0.4 s hold in every direction. The first tries (16.11) switched the game into
+// free movement (ChrCtrl+0x21D) and got DSR turn clips 100640 / 100610 (a fixed turn to the right, slow) and two hangs.
+// v3 keeps the game in lock-on mode and only turns the character, through the physics-step yaw hold:
+//   turn in  - while the facing is more than LockOnSprintAlign off the move direction the DLL keeps the sprint flag off
+//              (the character runs sideways, then diagonally) and turns it by the shortest angle at LockOnSprintTurnIn;
+//   sprint   - facing within the limit: the flag goes through and the game sprints forward; the DLL keeps the facing on
+//              the stick at the same rate (the lock-on turn controller would turn it back to the target);
+//   turn out - sprint over (key up, stick released): the DLL turns the character back to the target at
+//              LockOnSprintTurnOut and hands it to the game within 5 deg.
+// A main animation (roll, attack, hit, jump), an item, losing the target or leaving the ground ends it at once.
 static bool g_lockSprintFreeOn = false;  // er_engine.ini [Roll] LockOnSprintFree
+static float g_lockSprintTurnIn = 540.f;   // [Roll] LockOnSprintTurnIn (deg/s)
+static float g_lockSprintTurnOut = 720.f;  // [Roll] LockOnSprintTurnOut (deg/s)
+static float g_lockSprintAlign = 30.f;     // [Roll] LockOnSprintAlign (deg): sprint allowed within this angle
+// v3.1 (player test 16.11: "works better, no pointless turning, but still a bit wooden, you feel the jumps"; log: the
+// turn ran at a constant 540 deg/s from the first frame and stopped dead, the run clip switched back -> side -> front
+// on the way, and the sprint started from 2.3-2.7 m/s after a separate turn phase): the turn speeds up and slows down
+// (acceleration LockOnSprintTurnAccel, slowing within ~1/10 s of the goal; 0 = constant speed as in v3) and starts
+// while the key is still held (LockOnSprintTurnStart ms of the hold; 400 = v3), so the character is about facing the
+// stick when the game raises the sprint.
+static float g_lockSprintTurnAccel = 4000.f;  // [Roll] LockOnSprintTurnAccel (deg/s^2, 0 = constant speed)
+static DWORD g_lockSprintTurnStartMs = 200;   // [Roll] LockOnSprintTurnStart (ms of the key hold)
+enum { kLsIdle = 0, kLsTurnIn, kLsSprint, kLsTurnOut };
+static int g_lsState = kLsIdle;
+static bool g_lsHold = false;      // physics-step yaw hold on (ChrPhysStepDetour)
+static float g_lsOmega = 0.f;      // turn speed (rad/s, signed) carried between frames
+static float g_lsYaw = 0.f;        // yaw held this frame
+static DWORD g_lsSince = 0;        // tick the current state began
+static DWORD g_lsIdleAt = 0;       // tick of the last return to idle (diag: locomotion clips after it)
 static bool g_landStartTimeOn = false;   // er_engine.ini [Jump] LandStartTime (jump attack section)
 static float g_landBlendSec = 0.f;       // [Jump] LandBlend (ms): swing -> landing pose blend, 0 = the game's 0.03 s
 static float g_landSpeedCap = 0.f;       // [Jump] LandSpeedCap (m/s): horizontal speed cap after touchdown, 0 = off
@@ -521,8 +545,6 @@ static bool g_jumpClipToEnd = false;
 // Jump_Loop 202040 and FallLoop 004000. With the switch on, after the jump clip the DLL turns the character toward the
 // stick (world direction from the input ctx, as OmniRoll) at this rate.
 static float g_airTurnSpeed = 0.f;
-static bool g_lockFreeForced = false;
-static BYTE g_lockFreeSaved = 0;
 
 static BYTE* LockTargetChr(void* p3) {
     if (!p3) return nullptr;
@@ -535,51 +557,21 @@ static BYTE* LockTargetChr(void* p3) {
     }
 }
 
-static void LockOnSprintFreePre(BYTE* ctx, void* p3) {
-    if (!ctx || !p3 || g_rollKey <= 0) return;
-    BYTE* b = static_cast<BYTE*>(p3);
-    DWORD now = GetTickCount();
-    bool locked = LockTargetChr(p3) != nullptr;
-    bool held = g_keyDown[g_rollKey] != 0;
-    DWORD heldMs = held ? now - g_keyDownAt[g_rollKey] : 0;
-    float mag = sqrtf(g_axis[0] * g_axis[0] + g_axis[1] * g_axis[1]);
-    BYTE before = 0, sprint = 0;
-    __try { before = b[0x21D]; sprint = ctx[0x1E4]; } __except (EXCEPTION_EXECUTE_HANDLER) { return; }
-    bool want = g_lockSprintFreeOn && locked && held && heldMs >= SprintHoldThresholdMs() && mag >= 0.3f &&
-                ctx[0x350] == 0;
+// Yaw from the player to the lock-on point (PlayerIns+0x1B0 / +0x1B8, the point FUN_1403985e0 steers the lock-on stick
+// frame by). Same convention as the facing: forward = (-sin yaw, -cos yaw).
+static bool LockTargetYaw(void* p3, float* yaw) {
+    BYTE* chr = LockTargetChr(p3);
+    BYTE* pos = ChrPosData();
+    if (!chr || !pos) return false;
     __try {
-        if (want) {
-            if (!g_lockFreeForced) {
-                g_lockFreeSaved = before;
-                Log("[%7lu ms] lock-on sprint: free movement forced (+0x21D %u -> 1, sprint flag %u, axes %.2f %.2f)",
-                    now - g_t0, before, sprint, g_axis[0], g_axis[1]);
-            }
-            g_lockFreeForced = true;
-            b[0x21D] = 1;
-        } else if (g_lockFreeForced) {
-            g_lockFreeForced = false;
-            if (locked) b[0x21D] = g_lockFreeSaved;
-            Log("[%7lu ms] lock-on sprint: free movement released (+0x21D now %u, locked %d)", now - g_t0, b[0x21D],
-                locked ? 1 : 0);
-        }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
-    if (!kDiag || !locked || !held) return;
-    static DWORD lastLog = 0, lastAt = 0;
-    static float lastX = 0, lastZ = 0;
-    float x = 0, z = 0, yaw = 0, speed = -1;
-    if (BYTE* pos = ChrPosData()) __try {
-        x = *reinterpret_cast<float*>(pos + 0x10);
-        z = *reinterpret_cast<float*>(pos + 0x18);
-        yaw = *reinterpret_cast<float*>(pos + 0x04);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
-    if (now - lastLog < 250) return;
-    if (lastAt && now > lastAt) speed = sqrtf((x - lastX) * (x - lastX) + (z - lastZ) * (z - lastZ)) * 1000.f / (now - lastAt);
-    Log("[%7lu ms] lock-on sprint probe: held %lu ms, sprint flag +0x1E4 %u, free-move +0x21D %u (game) %s, axes %.2f %.2f, "
-        "speed %.2f m/s, yaw %.0f deg", now - g_t0, heldMs, sprint, before, g_lockFreeForced ? "-> 1 forced" : "", g_axis[0],
-        g_axis[1], speed, yaw * 57.29578f);
-    lastLog = lastAt = now;
-    lastX = x;
-    lastZ = z;
+        float dx = *reinterpret_cast<float*>(chr + 0x1B0) - *reinterpret_cast<float*>(pos + 0x10);
+        float dz = *reinterpret_cast<float*>(chr + 0x1B8) - *reinterpret_cast<float*>(pos + 0x18);
+        if (dx * dx + dz * dz < 0.04f) return false;
+        *yaw = atan2f(-dx, -dz);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
 }
 
 // Converts 4-way lock-on roll requests (+0x94 back, +0x95 left, +0x96 right, and queued +0x224)
@@ -734,6 +726,13 @@ static void LoadConfigIni() {
     g_hangRepairV2On = GetPrivateProfileIntA("Fixes", "HangRepairV2", 0, iniPath) != 0;
     g_attackFaceOn = GetPrivateProfileIntA("Roll", "AttackFaceTarget", 0, iniPath) != 0;
     g_lockSprintFreeOn = GetPrivateProfileIntA("Roll", "LockOnSprintFree", 0, iniPath) != 0;
+    g_lockSprintTurnIn = static_cast<float>(GetPrivateProfileIntA("Roll", "LockOnSprintTurnIn", 540, iniPath));
+    g_lockSprintTurnOut = static_cast<float>(GetPrivateProfileIntA("Roll", "LockOnSprintTurnOut", 720, iniPath));
+    g_lockSprintAlign = static_cast<float>(GetPrivateProfileIntA("Roll", "LockOnSprintAlign", 30, iniPath));
+    g_lockSprintTurnAccel = static_cast<float>(GetPrivateProfileIntA("Roll", "LockOnSprintTurnAccel", 4000, iniPath));
+    g_lockSprintTurnStartMs = GetPrivateProfileIntA("Roll", "LockOnSprintTurnStart", 200, iniPath);
+    Log("config: LockOnSprintTurnIn=%.0f TurnOut=%.0f deg/s Align=%.0f deg Accel=%.0f deg/s2 TurnStart=%lu ms",
+        g_lockSprintTurnIn, g_lockSprintTurnOut, g_lockSprintAlign, g_lockSprintTurnAccel, g_lockSprintTurnStartMs);
     g_landStartTimeOn = GetPrivateProfileIntA("Jump", "LandStartTime", 0, iniPath) != 0;
     g_landBlendSec = GetPrivateProfileIntA("Jump", "LandBlend", 0, iniPath) / 1000.f;
     g_landSpeedCap = static_cast<float>(GetPrivateProfileIntA("Jump", "LandSpeedCap", 0, iniPath));
@@ -1145,6 +1144,151 @@ static void AttackFaceOnMainAnim(int prev, int anim) {
             prevRoll ? "out of the roll" : "after the roll", delta * 57.29578f, sqrtf(dx * dx + dz * dz));
 }
 
+// --- Lock-on sprint v3: the turn (see g_lockSprintFreeOn) ----------------------------------------------------------
+static const char* LsName(int s) {
+    static const char* const kNames[] = {"idle", "turn in", "sprint", "turn out"};
+    return kNames[s & 3];
+}
+
+static void LsSet(int s, const char* why) {
+    if (s == g_lsState) return;
+    DWORD now = GetTickCount();
+    Log("[%7lu ms] lock-on sprint: %s -> %s (%s)", now - g_t0, LsName(g_lsState), LsName(s), why);
+    g_lsState = s;
+    g_lsSince = now ? now : 1;
+    if (s == kLsIdle) {
+        g_lsHold = false;
+        g_lsOmega = 0.f;
+        g_lsIdleAt = g_lsSince;
+    }
+}
+
+// Turns the facing toward goal (at most rateDeg deg/s) and holds it through the physics step. With an acceleration set,
+// the turn speed ramps up from the current one and eases off near the goal (wanted speed = 10/s * angle left).
+static float LsTurn(float yaw, float goal, float rateDeg, float dt) {
+    float diff = WrapPi(goal - yaw);
+    float maxRate = rateDeg * 0.017453293f;
+    float step;
+    if (g_lockSprintTurnAccel > 0.f) {
+        float want = diff * 10.f;
+        if (want > maxRate) want = maxRate;
+        if (want < -maxRate) want = -maxRate;
+        float dv = want - g_lsOmega, maxDv = g_lockSprintTurnAccel * 0.017453293f * dt;
+        g_lsOmega += dv > maxDv ? maxDv : (dv < -maxDv ? -maxDv : dv);
+        step = g_lsOmega * dt;
+        if ((step > 0.f && step > diff && diff > 0.f) || (step < 0.f && step < diff && diff < 0.f)) {
+            step = diff;  // no overshoot
+            g_lsOmega = dt > 0.f ? diff / dt : 0.f;
+        }
+    } else {
+        float s = maxRate * dt;
+        step = diff > s ? s : (diff < -s ? -s : diff);
+    }
+    float next = WrapPi(yaw + step);
+    g_lsYaw = next;
+    g_lsHold = true;
+    OmniApplyYawNow(next);  // the locomotion controller runs after the input handler and reads the new facing
+    return diff;
+}
+
+// After the input handler: the game has decided its sprint flag (+0x1E4) for this frame; the locomotion controller
+// copies it later in the same frame, so clearing it here keeps the run (as SuppressSprintWhileDrinking does).
+static void LockSprintTick(BYTE* ctx, float dt, void* p3) {
+    if (!g_lockSprintFreeOn) return;
+    if (!ctx || !p3) { LsSet(kLsIdle, "no input"); return; }
+    BYTE* pos = ChrPosData();
+    if (!pos) { LsSet(kLsIdle, "no position"); return; }
+    DWORD now = GetTickCount();
+    if (!(dt > 0.f)) dt = 0.f;
+    if (dt > 0.1f) dt = 0.1f;
+    bool locked = LockTargetChr(p3) != nullptr;
+    float yaw = 0.f, wx = 0.f, wz = 0.f;
+    bool ground = false;
+    BYTE sprint = 0;
+    __try {
+        yaw = *reinterpret_cast<float*>(pos + 0x04);
+        ground = pos[0x32] != 0;
+        wx = *reinterpret_cast<float*>(ctx + 0x10);
+        wz = *reinterpret_cast<float*>(ctx + 0x18);
+        sprint = ctx[0x1E4];
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return; }
+    float mag = sqrtf(g_axis[0] * g_axis[0] + g_axis[1] * g_axis[1]);
+    bool moving = mag >= 0.3f && wx * wx + wz * wz > 0.01f;
+    float moveYaw = moving ? atan2f(-wx, -wz) : yaw;
+    bool busy = g_mainAnim >= 0 || DrinkActive() || g_omniActive || g_faceHold > 0;
+    float align = g_lockSprintAlign * 0.017453293f;
+    float diff = 0.f, goal = moveYaw;
+    bool suppressed = false;
+
+    bool held = g_rollKey > 0 && g_keyDown[g_rollKey];
+    DWORD heldMs = held ? now - g_keyDownAt[g_rollKey] : 0;
+    // The turn starts at LockOnSprintTurnStart ms of the hold (a shorter press is a roll, released before that).
+    bool wantTurn = held && moving && (sprint || heldMs >= g_lockSprintTurnStartMs);
+    bool alignedNow = fabsf(WrapPi(moveYaw - yaw)) <= align;
+
+    if (g_lsState != kLsIdle && (!locked || !ground || busy))
+        LsSet(kLsIdle, !locked ? "target lost" : !ground ? "left the ground" : "action");
+    switch (g_lsState) {
+    case kLsIdle:
+    case kLsTurnOut:
+        if (locked && ground && !busy && wantTurn) {
+            if (sprint && alignedNow) LsSet(kLsSprint, "sprint toward the stick");
+            else if (!alignedNow || g_lsState == kLsTurnOut) LsSet(kLsTurnIn, sprint ? "sprint away from the target"
+                                                                                       : "key held, turning early");
+        }
+        break;
+    case kLsTurnIn:
+        if (!held || !moving) LsSet(kLsTurnOut, !held ? "key released" : "stick released");
+        break;
+    case kLsSprint:
+        if (!held || !sprint || !moving)
+            LsSet(kLsTurnOut, !held ? "sprint key released" : !sprint ? "sprint ended" : "stick released");
+        else if (!alignedNow && fabsf(WrapPi(moveYaw - yaw)) > 1.75f) LsSet(kLsTurnIn, "stick turned back");
+        break;
+    }
+    if (g_lsState == kLsTurnIn || g_lsState == kLsSprint) {
+        diff = LsTurn(yaw, moveYaw, g_lockSprintTurnIn, dt);
+        if (g_lsState == kLsTurnIn && sprint) {
+            if (fabsf(diff) <= align) LsSet(kLsSprint, "facing the stick");
+            else { ctx[0x1E4] = 0; suppressed = true; }
+        }
+    } else if (g_lsState == kLsTurnOut) {
+        if (!LockTargetYaw(p3, &goal)) LsSet(kLsIdle, "no lock-on point");
+        else {
+            diff = LsTurn(yaw, goal, g_lockSprintTurnOut, dt);
+            if (fabsf(diff) < 0.087f) LsSet(kLsIdle, "facing the target");
+            else if (now - g_lsSince > 1000) LsSet(kLsIdle, "turn out timeout");
+        }
+    }
+
+    if (!kDiag) return;
+    static DWORD lastLog = 0, lastAt = 0;
+    static float lastX = 0.f, lastZ = 0.f;
+    if (g_lsState == kLsIdle && !(locked && held)) return;
+    if (now - lastLog < (g_lsState == kLsIdle ? 250u : 100u)) return;
+    float x = 0.f, z = 0.f, speed = -1.f, tgt = 0.f;
+    int dir = -9, dash = -1, ramp100 = -1;
+    __try {
+        x = *reinterpret_cast<float*>(pos + 0x10);
+        z = *reinterpret_cast<float*>(pos + 0x18);
+        if (BYTE* mc = *reinterpret_cast<BYTE**>(static_cast<BYTE*>(p3) + 0x1A8)) {
+            dir = *reinterpret_cast<int*>(mc + 0x13C);
+            dash = mc[0x1B0];
+            ramp100 = static_cast<int>(*reinterpret_cast<float*>(mc + 0x1B8) * 100.f);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    bool haveTgt = LockTargetYaw(p3, &tgt);
+    if (lastAt && now > lastAt) speed = sqrtf((x - lastX) * (x - lastX) + (z - lastZ) * (z - lastZ)) * 1000.f / (now - lastAt);
+    Log("[%7lu ms] lock-on sprint probe: %s, held %lu ms, yaw %.0f, stick %.0f, target %s%.0f, diff %.0f deg, turn %.0f deg/s, "
+        "sprint flag %u%s, move dir %d, move sprint %d, ramp %.2f, speed %.2f m/s, axes %.2f %.2f", now - g_t0,
+        LsName(g_lsState), heldMs, yaw * 57.29578f, moveYaw * 57.29578f, haveTgt ? "" : "?", tgt * 57.29578f,
+        diff * 57.29578f, g_lsOmega * 57.29578f, sprint, suppressed ? " (held off)" : "", dir, dash, ramp100 / 100.f, speed,
+        g_axis[0], g_axis[1]);
+    lastLog = lastAt = now;
+    lastX = x;
+    lastZ = z;
+}
+
 // --- Artorias phase 2 (boss test package, docs/PLAN_PROJEKTU.md §6a) ----------------------------
 // Phase 1 of the Nightreign-style Artorias ends at HP 0: the DLL keeps him alive with ChrFlags2 NoDead (DSR-Gadget
 // ChrData1+0x514 bit 0x20; +0x10 in this exe = chr+0x524, the word of the stamina bit) until his transition 3016
@@ -1386,7 +1530,6 @@ static void __fastcall InputDetour(void* ctx, float dt, void* p3) {
         if (mag < 0.5f) g_rollAxisSince = 0; else if (!g_rollAxisSince) g_rollAxisSince = now ? now : 1;
     }
     g_fakeRollPress = RollBufferPre(static_cast<BYTE*>(ctx), p3);
-    LockOnSprintFreePre(static_cast<BYTE*>(ctx), p3);
     g_origInput(ctx, dt, p3);
     g_fakeRollPress = false;
     __try {
@@ -1394,6 +1537,7 @@ static void __fastcall InputDetour(void* ctx, float dt, void* p3) {
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
     GroundSpeedSample();
     SuppressSprintWhileDrinking(static_cast<BYTE*>(ctx));
+    LockSprintTick(static_cast<BYTE*>(ctx), dt, p3);
     LockOnSprintPostInput(static_cast<BYTE*>(ctx), dt, p3);
     OmniRollPostInput(static_cast<BYTE*>(ctx), dt, p3);
     RollBufferTick(static_cast<BYTE*>(ctx), dt, p3);
@@ -1891,6 +2035,8 @@ static void* __fastcall PlayAnimDetour(void* ctx, void* out, int a3, int a4, cha
     a3 = AirAttackSubstitute(ctx, a3, a4, a6);
     OmniRollOnPlayAnim(ctx, a3, a4, a6);
     AttackSpeedOnPlayAnim(a3, a4);
+    if (kDiag && g_lockSprintFreeOn && a4 == 8 && (g_lsState != kLsIdle || (g_lsIdleAt && GetTickCount() - g_lsIdleAt < 1500)))
+        Log("[%7lu ms] lock-on sprint: locomotion clip %d (%s)", GetTickCount() - g_t0, a3, LsName(g_lsState));
     // Pomiar spadania/ladowania: skok 900-999 i podejrzane spadanie/ladowanie DSR 1500-1699, kazda warstwa.
     if (kDiag && ((a3 >= 900 && a3 < 1000) || (a3 >= 1500 && a3 < 1700)))
         Log("[%7lu ms] SPADEK anim %d warstwa %d", GetTickCount() - g_t0, a3, a4);
@@ -3743,6 +3889,17 @@ static void __fastcall ChrPhysStepDetour(BYTE* posData, float dt) {
             *reinterpret_cast<float*>(posData + 0x04) = g_faceYaw;
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
         --g_faceHold;
+        return;
+    }
+    if (g_lsHold && !g_omniActive && posData && posData == ChrPosData()) {  // [Roll] LockOnSprintFree v3 turn
+        __try {
+            *reinterpret_cast<float*>(posData + 0x04) = g_lsYaw;
+            *reinterpret_cast<float*>(posData + 0x144) = 0.0f;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        g_origChrPhysStep(posData, dt);
+        __try {
+            *reinterpret_cast<float*>(posData + 0x04) = g_lsYaw;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
         return;
     }
     bool hold = g_omniActive && g_omniRollOn && posData && posData == ChrPosData();

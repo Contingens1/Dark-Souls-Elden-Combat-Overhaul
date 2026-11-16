@@ -1,11 +1,11 @@
 # Testy do zrobienia
 
-Stan: 2026-11-15 noc, po teście bossów; paczka nocna = `main` (ze sterowaniem w powietrzu). **To jedyna aktualna lista testów.** Po każdym teście poprawiam ten plik.
+Stan: 2026-11-16 wieczór, nocna DLL = `main` (ze sprintem przy namierzeniu v3.1) + Gwyn. Wydanie 0.5.4 opublikowane. **To jedyna aktualna lista testów.** Po każdym teście poprawiam ten plik.
 
 ## Jak uruchomić
 
 - **Prawie wszystko:** `dist\mods\bossy_nightreign\launch_test_all.bat`.
-  - DLL ma to samo co wydanie 0.5.3, plus diagnostykę, F8 i sterowanie w powietrzu przy skoku w dół.
+  - DLL ma to samo co wydanie 0.5.4, plus diagnostykę, F8, sprint przy namierzeniu v3.1 i dwie fazy Gwyna (punkt 2).
   - Zawiera wszystkich przerobionych bossów: Artoriasa, Capra, Gaping, Centipede, Stray i Gwyna.
 - **Wyjątek, punkt 3 (Centipede):** `dist\mods\c0000_er_engine\launch_er_engine.bat` (sam mod, bez bossów).
 - Gdy coś jest nie tak: **F8** od razu (zapisuje log). W wiadomości napisz mniej więcej godzinę.
@@ -55,6 +55,7 @@ Stan: 2026-11-15 noc, po teście bossów; paczka nocna = `main` (ze sterowaniem 
 
 ## Zaliczone ostatnio
 
+- 16.11 (na `main`): sprint przy namierzeniu w każdą stronę, wersja 3.1. Gracz: hamowanie i powrót do celu bardzo dobre, obroty w trakcie sprintu bardzo dobre, różne kąty bez błędów. Start jeszcze trochę drewniany: postać od razu się obraca i zwalnia (z logu: przy zmianie animacji biegu tyłem → bokiem → przodem prędkość spada z ~4 do 2,3–3 m/s, sprint dochodzi do 6 m/s dopiero po ~0,3 s). Poprawka startu: następna wersja.
 - 15.11 noc (na `main`, wejdzie do następnego wydania): sterowanie w powietrzu przy dalekim skoku w dół. Postać obraca się do gałki przez cały lot, wolno jak w ER (60°/s); gracz: „na początku większa sterowność, potem mniejsza, ale działa”.
 - 15.11 noc: Capra Demon jako Omen Killer w porządku. Gaping Dragon bez krytycznych problemów (gracz chce do niego kiedyś wrócić, ma potencjał).
 - 15.11 wieczór (weszło do 0.5.3): skok z lądowaniem w bieg i w sprint, bez hamowania, bez poślizgu (także po skoku na wyższe), bez przeskoku rąk i broni w locie.
