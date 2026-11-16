@@ -9,11 +9,17 @@
 # Since 0.5.4 two more reworked bosses ship as test versions (game files only, no DLL logic, no params): Capra Demon
 # with Omen Killer attacks from Elden Ring (dev package files_c2240_omen) and Gaping Dragon with an AI modelled on
 # Nightreign (files_c5260_ai: anibnd + the Depths map AI script m10_00).
+# Since 0.5.5: Gwyn with two phases as a third boss in testing (files_c5370_p2: anibnd + the Kiln map AI script
+# m18_00; the DLL turns phase 2 on when files\chr\c5370.anibnd.dcx is present), so the GameParam now comes from the
+# shared boss package files_bosses_param (main GameParam + Artorias rows + Gwyn rows, tools\boss_gameparam.py).
+# Also since 0.5.5 a tester DLL bin\er_engine_diag.dll (/DER_DIAG=2: log + F8, no developer keys, no .text dump) with
+# its own config ER-Inspired_DSR_Remake_logs.toml and launcher Launch_with_logs.bat; the main DLL stays /DER_DIAG=0.
+# setup\Setup.sh = the Linux setup (experimental, Steam + Proton).
 # -DllSource builds the DLL from another er_engine.cpp (e.g. a clean worktree of main) when the working folder holds
 # uncommitted experiments; its folder must hold the headers it includes.
 # Usage: powershell -ExecutionPolicy Bypass -File native\er_engine\build_release.ps1 [-Version 0.4.0] [-DllSource <path>] [-SkipInstallerTest]
 param(
-    [string]$Version = '0.5.4',
+    [string]$Version = '0.5.5',
     [string]$Repo = 'Contingens1/ER-Inspired_DSR_Remake',   # GitHub repo whose latest release setup\Update.ps1 checks
     [string]$DllSource = '',
     [switch]$SkipInstallerTest
@@ -26,11 +32,15 @@ $out = Join-Path $root "dist\release\$name"
 $mh = 'C:\Users\nemos\workspace\toolsy\minhook'
 $dev = Join-Path $root 'dist\mods\c0000_er_engine'
 $devBoss = Join-Path $root 'dist\mods\bossy_nightreign\files_c4100_v2'
-$bossFiles = @('chr\c4100.anibnd.dcx', 'script\m12_01_00_00.luabnd.dcx', 'param\GameParam\GameParam.parambnd.dcx')
+$bossFiles = @('chr\c4100.anibnd.dcx', 'script\m12_01_00_00.luabnd.dcx')
+# Shared boss GameParam (main + Artorias + Gwyn rows). boss_rows.txt names the sources it was built from.
+$devBossParam = Join-Path $root 'dist\mods\bossy_nightreign\files_bosses_param'
 $testBossFiles = [ordered]@{   # file in files\ -> dev folder it comes from (bosses in testing, see the header)
     'chr\c2240.anibnd.dcx'           = 'dist\mods\bossy_nightreign\files_c2240_omen'
     'chr\c5260.anibnd.dcx'           = 'dist\mods\bossy_nightreign\files_c5260_ai'
     'script\m10_00_00_00.luabnd.dcx' = 'dist\mods\bossy_nightreign\files_c5260_ai'
+    'chr\c5370.anibnd.dcx'           = 'dist\mods\bossy_nightreign\files_c5370_p2'
+    'script\m18_00_00_00.luabnd.dcx' = 'dist\mods\bossy_nightreign\files_c5370_p2'
 }
 if (-not $DllSource) { $DllSource = Join-Path $PSScriptRoot 'er_engine.cpp' }
 if (-not (Test-Path $DllSource)) { throw "DLL source not found: $DllSource" }
@@ -49,11 +59,21 @@ $vcvars = 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxil
 $cl = "cl /nologo /O2 /MT /W3 /EHsc /LD /DER_DIAG=0 /I`"$mh\include`" `"$DllSource`" `"$mh\src\buffer.c`" `"$mh\src\hook.c`" `"$mh\src\trampoline.c`" `"$mh\src\hde\hde64.c`" /Fo`"$out\obj\\`" /Fe`"$out\bin\er_engine.dll`" /link /DEF:`"$PSScriptRoot\dinput8.def`" user32.lib"
 cmd /c "`"$vcvars`" >nul && $cl" | Select-String 'error' | ForEach-Object { throw "Compile error: $_" }
 Remove-Item -Recurse -Force "$out\obj"
-Get-ChildItem "$out\bin" -Exclude er_engine.dll | Remove-Item -Force
+# Tester DLL (ER_DIAG=2): the same source with the log and F8 only, used by Launch_with_logs.bat.
+New-Item -ItemType Directory -Force "$out\obj" | Out-Null
+$clDiag = $cl.Replace('/DER_DIAG=0', '/DER_DIAG=2').Replace("$out\bin\er_engine.dll", "$out\bin\er_engine_diag.dll")
+cmd /c "`"$vcvars`" >nul && $clDiag" | Select-String 'error' | ForEach-Object { throw "Compile error (tester DLL): $_" }
+Remove-Item -Recurse -Force "$out\obj"
+Get-ChildItem "$out\bin" -Exclude er_engine.dll, er_engine_diag.dll | Remove-Item -Force
 if (-not (Test-Path "$out\bin\er_engine.dll")) { throw 'er_engine.dll was not built.' }
-# A release DLL must not contain diagnostic code: the F8 marker string exists only under ER_DIAG=1.
+if (-not (Test-Path "$out\bin\er_engine_diag.dll")) { throw 'er_engine_diag.dll was not built.' }
+# The main release DLL must not contain diagnostic code: the F8 marker string exists only under ER_DIAG=1/2.
 $dllText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes("$out\bin\er_engine.dll"))
 if ($dllText.Contains('===== ZNACZNIK')) { throw 'Release DLL contains diagnostic strings - was it built with /DER_DIAG=0?' }
+# The tester DLL: log and F8 yes, the developer extras (.text dump of the game, A/B keys) no.
+$diagText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes("$out\bin\er_engine_diag.dll"))
+if (-not $diagText.Contains('===== ZNACZNIK') -or -not $diagText.Contains('.prev.log')) { throw 'Tester DLL is not an ER_DIAG=2 build.' }
+if ($diagText.Contains('text_dump_') -or $diagText.Contains('OMNIROLL: %s')) { throw 'Tester DLL contains developer diagnostics (.text dump / A/B keys).' }
 
 # 2. DLL settings and game files (loaded by Mod Engine 2; the game folder is never touched).
 Copy-Item "$dev\bin\er_engine.ini" "$out\bin\"
@@ -62,7 +82,7 @@ $iniText = [IO.File]::ReadAllText("$out\bin\er_engine.ini")
 # Sections with the DLL defaults, added when the dev ini lacks them so that users see the switches.
 $iniSections = [ordered]@{
     'Fixes'  = "[Fixes]`r`n; 1 = after a roll the character is put back into free movement when it stands frozen with a direction held`r`n; 0 = off`r`nHangRepair=1"
-    'Bosses' = "[Bosses]`r`n; Artorias phase 2 (needs files\chr\c4100.anibnd.dcx and files\script\m12_01_00_00.luabnd.dcx from this package)`r`n; 2 = automatic: on when those files are present, 1 = on, 0 = off (Artorias then dies at 0 HP, no phase 2)`r`nArtoriasPhase2=2"
+    'Bosses' = "[Bosses]`r`n; Artorias phase 2 (needs files\chr\c4100.anibnd.dcx and files\script\m12_01_00_00.luabnd.dcx from this package)`r`n; 2 = automatic: on when those files are present, 1 = on, 0 = off (Artorias then dies at 0 HP, no phase 2)`r`nArtoriasPhase2=2`r`n; Gwyn phase 2 (in testing; needs files\chr\c5370.anibnd.dcx and files\script\m18_00_00_00.luabnd.dcx from this package)`r`n; 2 = automatic, 1 = on, 0 = off (Gwyn then dies at 0 HP; also remove those two files for the original Gwyn)`r`nGwynPhase2=2"
     'Update' = "[Update]`r`n; 1 = the launcher checks GitHub for a newer version of the mod before every start and asks before installing it`r`n; 0 = no check`r`nCheckForUpdates=1"
 }
 foreach ($s in $iniSections.Keys) {
@@ -72,11 +92,16 @@ foreach ($s in $iniSections.Keys) {
 Copy-Item "$dev\files\*" "$out\files\" -Recurse
 if (-not (Test-Path "$out\files\chr\c0000.esd.dcx")) { throw 'files\chr\c0000.esd.dcx is missing in the dev mod folder.' }
 
-# Artorias boss files. The boss GameParam is built from the main mod's GameParam (lock-on camera) by
-# tools\artorias_phase2.py; an older one would drop newer changes of the main GameParam.
+# Boss GameParam: the shared one (main mod's GameParam with the ER lock-on camera + Artorias rows + Gwyn rows), built
+# by tools\boss_gameparam.py; an older one would drop newer changes of the main GameParam. Its Artorias rows equal the
+# released files_c4100_v2 ones (checked 2026-11-16: `boss_gameparam.py --artorias-tag _v2 --dry-run --check`).
 $mainParam = Get-Item "$dev\files\param\GameParam\GameParam.parambnd.dcx"
-$bossParam = Get-Item "$devBoss\param\GameParam\GameParam.parambnd.dcx"
-if ($bossParam.LastWriteTime -lt $mainParam.LastWriteTime) { throw 'Boss GameParam is older than the main one - rerun tools\artorias_phase2.py.' }
+$bossParam = Get-Item "$devBossParam\param\GameParam\GameParam.parambnd.dcx"
+if ($bossParam.LastWriteTime -lt $mainParam.LastWriteTime) { throw 'Boss GameParam is older than the main one - rerun tools\boss_gameparam.py.' }
+$rows = [IO.File]::ReadAllText("$devBossParam\boss_rows.txt")
+if ($rows -notmatch '(?m)^artorias:' -or $rows -notmatch '(?m)^gwyn:') { throw 'Shared boss GameParam lacks the Artorias or Gwyn rows (boss_rows.txt).' }
+New-Item -ItemType Directory -Force "$out\files\param\GameParam" | Out-Null
+Copy-Item $bossParam.FullName "$out\files\param\GameParam\GameParam.parambnd.dcx" -Force
 foreach ($f in $bossFiles) {
     if (-not (Test-Path "$devBoss\$f")) { throw "Boss file missing: $devBoss\$f" }
     New-Item -ItemType Directory -Force (Split-Path "$out\files\$f") | Out-Null
@@ -112,6 +137,30 @@ mods = [
 [extension.scylla_hide]
 enabled = false
 "@ | ForEach-Object { [IO.File]::WriteAllText("$out\$fileBase.toml", $_.Replace("`r`n", "`n").Replace("`n", "`r`n"), $utf8NoBom) }
+# Tester config (since 0.5.5): the same with the tester DLL. Static, so the updater brings it to older installs too.
+$mainToml = [IO.File]::ReadAllText("$out\$fileBase.toml")
+if (-not $mainToml.Contains('"bin/er_engine.dll"')) { throw 'Main toml has no bin/er_engine.dll entry.' }
+$logsToml = $mainToml.Replace('"bin/er_engine.dll"', '"bin/er_engine_diag.dll"').Replace('Mod Engine 2 configuration', 'Mod Engine 2 configuration with the bug-report log (F8)')
+[IO.File]::WriteAllText("$out\${fileBase}_logs.toml", $logsToml, $utf8NoBom)
+# Its launcher reads the Mod Engine 2 folder remembered by Setup.bat (setup\modengine2_path.txt), so it needs no setup run.
+@"
+@echo off
+chcp 65001 >nul
+rem $fileBase - game start with the bug-report log (tester DLL bin\er_engine_diag.dll). Offline play only.
+rem F8 in the game saves the log to bin\er_engine.log (the previous run is kept as bin\er_engine.prev.log).
+cd /d "%~dp0"
+set "MODENGINE2="
+if exist "%~dp0setup\modengine2_path.txt" set /p MODENGINE2=<"%~dp0setup\modengine2_path.txt"
+if not exist "%MODENGINE2%\modengine2_launcher.exe" (
+    echo Najpierw uruchom Setup.bat i wskaz folder Mod Engine 2.
+    echo Run Setup.bat first and choose the Mod Engine 2 folder.
+    pause
+    exit /b 1
+)
+echo Gra z logiem do zglaszania bledow: F8 w grze zapisuje bin\er_engine.log.
+echo Game with the bug-report log: F8 in the game saves bin\er_engine.log.
+"%MODENGINE2%\modengine2_launcher.exe" -t dsr -c "%~dp0${fileBase}_logs.toml"
+"@ | Set-Content -Encoding ascii "$out\Launch_with_logs.bat"
 
 # 4. Setup tool. Setup.ps1 is saved with a BOM: Windows PowerShell 5.1 reads BOM-less files as ANSI and
 #    would break the Polish text in the window.
@@ -121,6 +170,9 @@ $ps1 = $ps1.Replace('{VERSION}', $Version).Replace('{EXE_SHA256}', $exeSha256)
 $upd = [IO.File]::ReadAllText("$PSScriptRoot\setup\Update.ps1", [Text.Encoding]::UTF8)
 $upd = $upd.Replace('{VERSION}', $Version).Replace('{REPO}', $Repo)
 [IO.File]::WriteAllText("$out\setup\Update.ps1", $upd.Replace("`r`n", "`n").Replace("`n", "`r`n"), $utf8Bom)
+# Linux setup (experimental): bash needs LF line endings and no BOM.
+$sh = [IO.File]::ReadAllText("$PSScriptRoot\setup\Setup.sh", [Text.Encoding]::UTF8)
+[IO.File]::WriteAllText("$out\setup\Setup.sh", $sh.Replace("`r`n", "`n"), $utf8NoBom)
 @'
 @echo off
 chcp 65001 >nul
@@ -184,6 +236,9 @@ if (-not $SkipInstallerTest) {
             if (-not (Test-Path (Join-Path $pkg "_backup\v$Version\files\stale_file.txt"))) { throw 'Updater did not back up the previous files.' }
             if ((Get-Content $bat -Raw) -ne $batBefore) { throw 'Updater changed the launcher .bat.' }
             if (-not (Test-Path (Join-Path $pkg 'bin\er_engine.dll'))) { throw 'DLL missing after the update.' }
+            foreach ($f in 'bin\er_engine_diag.dll', "${fileBase}_logs.toml", 'Launch_with_logs.bat', 'setup\Setup.sh') {
+                if (-not (Test-Path (Join-Path $pkg $f))) { throw "$f missing after the update." }
+            }
             'Updater test: OK (local package installed, ini values kept, stale file removed, backup made, launcher untouched)'
         } else {
             "Installer test: Mod Engine 2 not found at $devModEngine2 - generation step skipped"

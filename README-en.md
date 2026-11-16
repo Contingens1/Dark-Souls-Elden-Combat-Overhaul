@@ -11,7 +11,7 @@ A gameplay and engine modification for **Dark Souls: Remastered** that brings th
 | **Elden Ring jump** | Takeoff animations from Elden Ring (standing, walking, sprinting) on a dedicated button, air control (turning and drifting), momentum kept when jumping off a ledge, and no roll after landing. |
 | **Jump attacks** | Attacks during a jump (R1 and R2, one-handed and two-handed) using Elden Ring's in-air swing animations and ground finishers, with input queueing for 14 melee weapon groups. |
 | **Omni-Roll (all directions)** | Custom C++ implementation (`er_engine.dll`) that allows a dodge in any direction relative to the camera while locked on, with dodge input buffering. |
-| **Sprint while locked on** | The roll fires on key release (as in ER), preventing accidental side and back rolls when you try to sprint. |
+| **Sprint while locked on** | The roll fires on key release (as in ER), preventing accidental side and back rolls when you try to sprint. Since 0.5.5 *(work in progress)* sprint in every direction: the character turns toward the stick and turns back to face the target on release; the camera stays on the target. |
 | **Elden Ring rolls and backsteps** | The full set of dodge animations (4 load tiers × 4 directions) and backsteps, with invincibility frames and recovery windows matched to Elden Ring. |
 | **Walk, run and sprint from ER** | Locomotion animations for all 9 weapon stances and 3 encumbrance tiers. |
 | **Elden Ring attack pace** | Dynamic speed scaling of selected DSR attack phases (commitment and recovery windows) matched to Elden Ring timings for 14 melee weapon groups. |
@@ -27,6 +27,7 @@ Boss reworks are in progress. The package contains:
 * **Knight Artorias** — a second phase with attacks from Nightreign.
 * **Capra Demon** *(in testing, since 0.5.4)* — some strikes replaced with Omen Killer attacks from Elden Ring.
 * **Gaping Dragon** *(in testing, since 0.5.4)* — a new AI modelled on Nightreign.
+* **Gwyn** *(in testing, since 0.5.5)* — two phases: first the Dark Souls Gwyn, then, after a transition at 0 HP, the Soul of Cinder moves from Dark Souls III.
 
 More bosses are planned.
 
@@ -38,7 +39,7 @@ The mod is under development. Below are the known issues that do not work proper
 * **Jumping through walls (intentional, kept for now).** A jump can start next to a wall and pass through it. This allows interesting skips, so it is not blocked for now.
 * **Block in a sprint looks odd (intentional, kept for now).** The ER sprint animation is played on the upper body, which looks unnatural.
 * **Camera:** monsters and the environment can block the camera, and the camera sometimes rises up sharply on its own. Fixes are planned.
-* **Sprint while locked on only works forward**, as in the original game. Sprinting sideways and backwards like in ER is planned.
+* **Sprint in every direction while locked on (work in progress):** the sprint start is still a bit stiff, the character slows down for a moment during the turn. A fix is on the way.
 * **Character freeze (rare):** after a roll, the character can stand without animation for a few seconds even while the stick is pushed. It usually ends with a hit or another roll. The cause is not known yet. The package has an automatic unlock attempt, which may not work.
 
 
@@ -51,7 +52,7 @@ The mod is under development. Below are the known issues that do not work proper
 
 ## Download and installation
 
-Ready-to-run packages for testers (no compilation needed) are on the **[Releases](../../releases)** page. Detailed instructions for running the mod through **Mod Engine 2** are included in each archive (`README_release.md`).
+Ready-to-run packages for testers (no compilation needed) are on the **[Releases](../../releases)** page. Detailed instructions for running the mod through **Mod Engine 2** are included in each archive (`README_release.md`). Since 0.5.5 the package also has `Launch_with_logs.bat` (a log for bug reports, saved with F8) and an experimental Linux script (Steam + Proton) `setup/Setup.sh`.
 
 ## Acknowledgements and resources
 
@@ -61,9 +62,10 @@ Ready-to-run packages for testers (no compilation needed) are on the **[Releases
 * **MinHook** (Tsuda Kageyu) — hooking library used in `er_engine.dll`.
 * **Elden Ring Nightreign** (FromSoftware) — second-phase Artorias attack animations ported into the package; Gaping Dragon animations and AI logic as the model.
 * **Elden Ring** (FromSoftware) — Omen Killer attack animations ported to Capra Demon.
+* **Dark Souls III** (FromSoftware) — Soul of Cinder animations and phase transition ported to Gwyn; the SoC attack combos as the model for his AI.
 * **Community tools:** SoulsFormats, soulstruct, Ghidra, DS Anim Studio.
 
-**License:** the project code (`native/`, `tools/` and scripts) is released under the **GPL-3.0 License**; see [LICENSE](LICENSE). The license does not cover game files, Elden Ring and Nightreign animations, or third-party tools (Mod Engine 2, MinHook, Ghidra, etc.), which remain under their own licenses.
+**License:** the project code (`native/`, `tools/` and scripts) is released under the **GPL-3.0 License**; see [LICENSE](LICENSE). The license does not cover game files, Elden Ring, Nightreign and Dark Souls III animations, or third-party tools (Mod Engine 2, MinHook, Ghidra, etc.), which remain under their own licenses.
 
 ## Disclaimer
 
@@ -71,7 +73,7 @@ This is an unofficial, non-commercial, fan-made modification created for educati
 
 All original game assets, animations, names, and trademarks belong to **FromSoftware, Inc.** and **Bandai Namco Entertainment Inc.**
 
-To use this mod, you must legally own copies of the respective games (*Dark Souls: Remastered*, *Elden Ring* and *Elden Ring Nightreign*). Do not monetize, re-upload, or redistribute these files commercially.
+To use this mod, you must legally own copies of the respective games (*Dark Souls: Remastered*, *Dark Souls III*, *Elden Ring* and *Elden Ring Nightreign*). Do not monetize, re-upload, or redistribute these files commercially.
 
 ## Support the Project
 

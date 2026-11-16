@@ -14,10 +14,14 @@
 
 static HMODULE g_real = nullptr;
 // ER_DIAG=1 (domyslnie): sondy, zrzut .text, logi testowe. Wydanie: /DER_DIAG=0 (build.bat release).
+// ER_DIAG=2 = tester build shipped next to the release DLL (bin\er_engine_diag.dll, since 0.5.5): the same log,
+// probes and F8 as ER_DIAG=1, but no .text dump, no developer keys (F5-F7, F9), no submit probes, and the log starts
+// fresh every run (the previous one is kept as er_engine.prev.log).
 #ifndef ER_DIAG
 #define ER_DIAG 1
 #endif
 constexpr bool kDiag = ER_DIAG != 0;
+constexpr bool kDevDiag = ER_DIAG == 1;
 
 static FILE* g_log = nullptr;
 static char g_dir[MAX_PATH];  // katalog z DLL (log, zrzuty)
@@ -93,6 +97,14 @@ static void OpenLog(HMODULE self) {
         strcpy_s(slash + 1, path + MAX_PATH - (slash + 1), "er_engine.log");
     }
     // Dopisywanie (kolejne sesje w jednym pliku, np. testy A/B); czytelny w trakcie gry.
+    // Tester build: one run per file, the previous run kept as er_engine.prev.log (the file the tester sends stays small).
+    if (ER_DIAG == 2 && slash) {
+        char prev[MAX_PATH];
+        strcpy_s(prev, path);
+        if (char* dot = strrchr(prev, '.')) *dot = 0;
+        strcat_s(prev, ".prev.log");
+        MoveFileExA(path, prev, MOVEFILE_REPLACE_EXISTING);
+    }
     InitializeCriticalSection(&g_logLock);
     g_logLockReady = true;
     g_log = _fsopen(path, "a", _SH_DENYNO);
@@ -701,7 +713,8 @@ static BossPhase g_bosses[] = {
     // docs/PLAN_PROJEKTU.md §6a: transition 3016 (tools/artorias_phase2.py, tools/make_artorias_ai.py)
     {"artorias", "ArtoriasPhase2", "..\\files\\chr\\c4100.anibnd.dcx", "files_c4100_v2", 410000, {3016, 0}},
     // docs/PLAN_PROJEKTU.md §6c: kneel 3028 -> sword into the ground 3029 (tools/gwyn_phase2.py, make_gwyn_ai.py --p2)
-    {"gwyn", "GwynPhase2", nullptr, "files_c5370_p2", 537000, {3028, 3029}},
+    // Release since 0.5.5 (in testing): files\chr\c5370.anibnd.dcx of the package = the phase-2 anibnd of files_c5370_p2.
+    {"gwyn", "GwynPhase2", "..\\files\\chr\\c5370.anibnd.dcx", "files_c5370_p2", 537000, {3028, 3029}},
 };
 
 // 1 on, 0 off, 2 auto = on only when this run loads the boss package: the release layout (bin\er_engine.dll next to
@@ -1636,6 +1649,8 @@ static void __fastcall InputDetour(void* ctx, float dt, void* p3) {
             g_physProbeAt = GetTickCount();  // 2.5 s zrzutu fizyki od znacznika (diagnoza zawieszenia postaci)
         }
         f8 = down;
+    }
+    if (kDevDiag) {  // developer A/B keys (not in the tester build)
         static bool f7 = false;  // F7 = rozped w spadaniu wl./wyl. (test A/B)
         bool down7 = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
         if (down7 && !f7) {
@@ -4050,12 +4065,12 @@ static DWORD WINAPI InitThread(LPVOID) {
     if (!GetModuleHandleA("DSROmniRoll.dll")) {
         WaitForGameReady();
     }
-    if (kDiag) DumpDecryptedText();
+    if (kDevDiag) DumpDecryptedText();
     InstallInputProbe();
     InstallPlayAnimProbe();
     InstallRollPressHook();
     InstallChrPhysStepHook();
-    if (kDiag) InstallSubmitProbes();
+    if (kDevDiag) InstallSubmitProbes();
     InstallDrinkSlowWalk();
     return 0;
 }

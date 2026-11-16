@@ -11,7 +11,7 @@ Projekt modyfikacji rozgrywki i silnika dla **Dark Souls: Remastered**, przenosz
 | **Skok z Elden Ringa** | Animacje wybicia z ER (z miejsca, w marszu, ze sprintu) z dedykowanym przyciskiem, sterowaniem w locie (obrót i dosuwanie), zachowaniem pędu przy skoku z półki oraz brakiem przewrotu po lądowaniu. |
 | **Ataki z wyskoku** | Atak w trakcie skoku (R1 i R2, jedną ręką i oburącz) wykorzystujący animacje zamachu w locie i wykończenia na ziemi z ER wraz z kolejkowaniem wejść dla 14 grup broni białej. |
 | **Przewrót we wszystkie strony (Omni-Roll)** | Własna implementacja w C++ (`er_engine.dll`) umożliwiająca unik w dowolnym kierunku względem kamery przy namierzonym celu oraz buforowanie klawisza uniku. |
-| **Sprint przy namierzeniu** | Wyzwalanie przewrotu przy puszczeniu klawisza (jak w ER), eliminujące przypadkowe uniki w bok i w tył przy próbie wejścia w sprint. |
+| **Sprint przy namierzeniu** | Wyzwalanie przewrotu przy puszczeniu klawisza (jak w ER), eliminujące przypadkowe uniki w bok i w tył przy próbie wejścia w sprint. Od 0.5.5 *(work in progress)* sprint w każdą stronę: postać obraca się w stronę gałki, a po puszczeniu wraca przodem do celu; kamera zostaje na celu. |
 | **Przewroty i backstepy z ER** | Pełny zestaw animacji uników (4 progi obciążenia × 4 kierunki) i backstepów z klatkami nietykalności i oknami wyjścia (recovery) odwzorowanymi z Elden Ringa. |
 | **Chód, bieg i sprint z ER** | Animacje poruszania się we wszystkich 9 postawach broni i 3 progach obciążenia. |
 | **Tempo ataków z ER** | Dynamiczne skalowanie szybkości wybranych faz ataków DSR (wejście w cios i okno recovery) pod czasy z Elden Ringa dla 14 grup broni białej. |
@@ -27,6 +27,7 @@ Przeróbki walk z bossami trwają. W paczce są:
 * **Rycerz Artorias** — druga faza z atakami z Nightreign.
 * **Capra Demon** *(w fazie testów, od 0.5.4)* — część ciosów zastąpiona atakami Omen Killera z Elden Ringa.
 * **Gaping Dragon** *(w fazie testów, od 0.5.4)* — nowe AI na wzór Nightreign.
+* **Gwyn** *(w fazie testów, od 0.5.5)* — dwie fazy: najpierw Gwyn z Dark Souls, po przejściu przy 0 HP ruchy Soul of Cinder z Dark Souls III.
 
 Kolejni bossowie są w planie.
 
@@ -38,7 +39,7 @@ Mod jest w trakcie rozwoju. Poniżej to, co jest znane i jeszcze nie działa jak
 * **Skok przez ścianę (zamierzone, na razie zostaje).** Skok można zacząć przy ścianie i przeniknąć przez nią. Pozwala to na ciekawe skipy, więc na razie nie jest blokowane.
 * **Blok bronią w sprincie wygląda śmiesznie (zamierzone, na razie zostaje).** Animacja sprintu z ER jest na górnej części ciała, co wygląda nienaturalnie.
 * **Kamera:** moby i otoczenie potrafią zasłaniać kamerę, a kamera czasem sama mocno unosi się w górę. Jest to w planie poprawek.
-* **Sprint przy namierzeniu działa tylko w przód**, tak jak w oryginale. Sprint w bok i w tył z ER jest w planie.
+* **Sprint w każdą stronę przy namierzeniu (work in progress):** start sprintu jest jeszcze trochę sztywny, przy obrocie postać na chwilę zwalnia. Poprawka jest w drodze.
 * **Zawieszenie postaci (rzadkie):** po przewrocie postać może przez kilka sekund stać bez animacji, mimo że gałka jest wychylona. Kończy się to zwykle trafieniem albo kolejnym przewrotem. Przyczyna nie jest jeszcze znana. Paczka ma automatyczną próbę odblokowania, która może nie zadziałać.
 
 ## Architektura repozytorium
@@ -50,7 +51,7 @@ Mod jest w trakcie rozwoju. Poniżej to, co jest znane i jeszcze nie działa jak
 
 ## Pobieranie i instalacja
 
-Gotowe do uruchomienia paczki dla testerów (niewymagające kompilacji kodu) znajdują się w zakładce **[Releases](../../releases)**. Szczegółowa instrukcja uruchomienia przez **Mod Engine 2** jest dołączona wewnątrz każdego archiwum (`README_release.md`).
+Gotowe do uruchomienia paczki dla testerów (niewymagające kompilacji kodu) znajdują się w zakładce **[Releases](../../releases)**. Szczegółowa instrukcja uruchomienia przez **Mod Engine 2** jest dołączona wewnątrz każdego archiwum (`README_release.md`). Od 0.5.5 w paczce są też: `Launch_with_logs.bat` (log do zgłaszania błędów, zapis klawiszem F8) i eksperymentalny skrypt pod Linuksa (Steam + Proton) `setup/Setup.sh`.
 
 ## Podziękowania i wykorzystane zasoby
 
@@ -60,9 +61,10 @@ Gotowe do uruchomienia paczki dla testerów (niewymagające kompilacji kodu) zna
 * **MinHook** (Tsuda Kageyu) — biblioteka hooków wykorzystana w `er_engine.dll`.
 * **Elden Ring Nightreign** (FromSoftware) — animacje ataków drugiej fazy Artoriasa przeniesione do paczki; animacje i logika AI Gaping Dragona jako wzór.
 * **Elden Ring** (FromSoftware) — animacje ataków Omen Killera przeniesione na Capra Demona.
+* **Dark Souls III** (FromSoftware) — animacje i przejście fazy Soul of Cinder przeniesione na Gwyna; kombinacje ataków SoC jako wzór dla jego AI.
 * **Narzędzia społecznościowe:** SoulsFormats, soulstruct, Ghidra, DS Anim Studio.
 
-**Licencja:** kod projektu (`native/`, `tools/` i skrypty) udostępniany jest na licencji **GPL-3.0** — zob. plik [LICENSE](LICENSE). Licencja nie obejmuje plików gier, animacji z Elden Ringa i Nightreign ani zewnętrznych narzędzi (Mod Engine 2, MinHook, Ghidra itd.), które podlegają własnym licencjom.
+**Licencja:** kod projektu (`native/`, `tools/` i skrypty) udostępniany jest na licencji **GPL-3.0** — zob. plik [LICENSE](LICENSE). Licencja nie obejmuje plików gier, animacji z Elden Ringa, Nightreign i Dark Souls III ani zewnętrznych narzędzi (Mod Engine 2, MinHook, Ghidra itd.), które podlegają własnym licencjom.
 
 ## Disclaimer
 
@@ -70,7 +72,7 @@ This is an unofficial, non-commercial, fan-made modification created for educati
 
 All original game assets, animations, names, and trademarks belong to **FromSoftware, Inc.** and **Bandai Namco Entertainment Inc.**
 
-To use this mod, you must legally own copies of the respective games (*Dark Souls: Remastered*, *Elden Ring* and *Elden Ring Nightreign*). Do not monetize, re-upload, or redistribute these files commercially.
+To use this mod, you must legally own copies of the respective games (*Dark Souls: Remastered*, *Dark Souls III*, *Elden Ring* and *Elden Ring Nightreign*). Do not monetize, re-upload, or redistribute these files commercially.
 
 ## Wesprzyj projekt
 

@@ -34,7 +34,7 @@
 
 ## Non-negotiable rules
 1. **Zero vanilla interference.** Never modify, patch, move or delete original Dark Souls Remastered files. The game lives at `F:\SteamLibrary\steamapps\common\DARK SOULS REMASTERED\`. Read it, never write to it. All runtime changes go through Mod Engine 2 from `dist\mods\`.
-2. **Production builds.** Every release build made by `build_release.ps1` MUST compile with `/DER_DIAG=0`. Diagnostic keys (F5–F9) and logging exist only in `ER_DIAG=1` builds.
+2. **Production builds.** The main release DLL (`bin\er_engine.dll`) made by `build_release.ps1` MUST compile with `/DER_DIAG=0`. Since 0.5.5 (user decision 2026-11-16) the package also ships an optional tester DLL `bin\er_engine_diag.dll` built with `/DER_DIAG=2`: log and F8 only, started only by `Launch_with_logs.bat`. Developer diagnostics (`.text` dump, A/B keys F5–F7/F9, submit probes) exist only in `ER_DIAG=1` builds and never ship.
 3. **Snapshots.** Before a risky change, copy the working state to `work\` with a `*_STABLE` or dated suffix. After a regression, restore the snapshot instead of stacking fixes.
 4. **Formats through libraries.** Read and write TAE, ESD, BND and DCX through SoulsFormats via `tools\sfbridge.py`. Do not write custom parsers for TAE or HKX(without asking and absolute need at least).
 5. **No legacy dependencies.** Do not reintroduce DSROmniRoll, Simple Estus Walking or other removed external mods into the build, configs or release notes without asksing.

@@ -1,6 +1,6 @@
 # ER-Inspired DSR Remake v{VERSION} — Dark Souls Remastered
 
-Elden Ring-style movement, dodging, jumping and drinking Estus in Dark Souls Remastered. Since 0.4.0 also the first reworked boss: Knight Artorias, with a second phase and attacks from Nightreign. Since 0.5.4 Capra Demon and Gaping Dragon are in testing too.
+Elden Ring-style movement, dodging, jumping and drinking Estus in Dark Souls Remastered. Since 0.4.0 also the first reworked boss: Knight Artorias, with a second phase and attacks from Nightreign. Since 0.5.4 Capra Demon and Gaping Dragon are in testing too, since 0.5.5 Gwyn with a second phase (Soul of Cinder from Dark Souls III).
 
 ## Requirements
 
@@ -9,7 +9,7 @@ Elden Ring-style movement, dodging, jumping and drinking Estus in Dark Souls Rem
 
 - **Mod Engine 2 with Dark Souls Remastered support** — a release that contains the file `launchmod_darksoulsremastered.bat` in its folder (the launcher accepts `-t dsr`). Working DSR build: <https://www.nexusmods.com/darksoulsremastered/mods/790>. The official GitHub release (`ModEngine-2.1.0.0`) does not support DSR. Older releases made only for Dark Souls 3 / Elden Ring will not work either. Unpack it anywhere (it does not have to be in the game folder).
 - **Dark Souls Remastered** (Steam), exe with SHA-256 `A45AAA36…` (the version current at the time of the mod release). The setup tool checks the same and warns if you have a different one.
-- Windows 10 / 11.
+- Windows 10 / 11. Linux (Steam + Proton): experimental, see "Linux".
 
 ## Running (no installation)
 
@@ -44,6 +44,33 @@ An update changes only the files in the mod folder — it does not touch the gam
 - **Play offline only.** The mod changes how the game works in memory — online play risks a ban. The mod has no network block of its own; before launching, switch Steam to offline mode or set the game to start offline.
 - On a different version of `DarkSoulsRemastered.exe` the hooks will not install and the DLL mechanics will not work (log: `bin\er_engine.log`).
 
+## New in 0.5.5
+
+Test version (pre-release).
+
+- **Sprint in every direction while locked on** *(work in progress)*. With a lock-on target, holding the sprint key with the stick to the side, back or at a diagonal sprints that way, as in Elden Ring: the character turns toward the stick by the shortest angle and goes into the sprint, follows the stick during it, and on release turns back to face the target. The camera stays on the target. The sprint start is still a bit stiff (a short slowdown during the turn) — a fix is on the way. To turn it off: `LockOnSprintFree=0` in section `[Roll]` of `bin\er_engine.ini` (the locked-on sprint then goes forward only again).
+- **Gwyn with two phases** *(in testing)*: see "Bosses in testing".
+- **Log for bug reports (F8):** see "Reporting bugs".
+- **Linux (experimental):** the `setup/Setup.sh` script, see "Linux".
+
+## Reporting bugs *(since 0.5.5)*
+
+When something goes wrong (e.g. the character freezes), start the game with **`Launch_with_logs.bat`** instead of the normal launcher. It is the same mod version, only with a log:
+1. Play normally. When something goes wrong, press **F8** right away (it saves the latest events).
+2. After quitting the game, send the file **`bin\er_engine.log`** from the mod folder (e.g. in a GitHub issue) and write what happened and roughly when. The previous run stays in `bin\er_engine.prev.log`.
+
+The log holds only game events (animations, buttons, character positions), no personal data. `Launch_with_logs.bat` uses the Mod Engine 2 chosen in `Setup.bat`, so run `Setup.bat` once first.
+
+## Linux *(experimental, since 0.5.5)*
+
+Not checked on many systems — reports are welcome.
+1. Unpack the mod outside the game folder, e.g. to `~/Games/`.
+2. Download a Mod Engine 2 build with Dark Souls Remastered support (see "Requirements") and unpack it anywhere.
+3. In Steam force Proton for the game (Properties → Compatibility) and start it once so the prefix exists.
+4. In a terminal run `bash setup/Setup.sh` (optionally `--me2 /path/to/ModEngine2`). It installs nothing and never touches the game or Steam; it only writes files inside the mod folder.
+5. Paste the printed line into the game's Launch Options in Steam: `"/path/to/mod/Launch_ER-Inspired_DSR_Remake.sh" %command%`. For bug reports use the log variant: `--logs` before `%command%`.
+6. Play offline, starting the game with the normal Play button in Steam. To remove: clear the Launch Options.
+
 ## New in 0.5.4
 
 Test version (pre-release): fixes checked in the game, but bugs may still appear.
@@ -55,7 +82,8 @@ Test version (pre-release): fixes checked in the game, but bugs may still appear
 
 - **Capra Demon** (Lower Undead Burg) — some strikes replaced with Omen Killer attacks from Elden Ring (among them the strike with both cleavers); the tail moves as in the original. AI from Dark Souls.
 - **Gaping Dragon** (Depths) — a new AI modelled on Nightreign: the attack is chosen by the player's distance and side, pauses between attacks, turning during an attack, acid spit below 70% HP. The wave after a jump hits at the moment of impact, the charge hurts once.
-- To turn one off: delete `c2240.anibnd.dcx` (Capra) from `files\chr`, or `c5260.anibnd.dcx` together with `files\script\m10_00_00_00.luabnd.dcx` (Gaping Dragon). The updater restores them on the next update.
+- **Gwyn, Lord of Cinder** *(since 0.5.5)* (Kiln of the First Flame) — two phases. Phase 1 is the Dark Souls Gwyn. At 0 HP he does not die: he steps back, drops to one knee, drives his sword into the ground (a fire burst and a wave around him, about 4 m — a roll at the right moment or stepping away avoids it) and gets his full HP bar back. In phase 2 he fights with the Soul of Cinder moves from Dark Souls III; fire along the whole blade and a red glow on his chest mark phase 2. Each bar has less HP than the original one; together the fight is a bit longer.
+- To turn one off: delete `c2240.anibnd.dcx` (Capra) from `files\chr`, or `c5260.anibnd.dcx` together with `files\script\m10_00_00_00.luabnd.dcx` (Gaping Dragon), or `c5370.anibnd.dcx` together with `files\script\m18_00_00_00.luabnd.dcx` (Gwyn; also set `GwynPhase2=0` in `bin\er_engine.ini`). The updater restores the files on the next update.
 
 ## New in 0.5.3
 
@@ -132,7 +160,7 @@ Test version (pre-release): fixes checked in the game, but bugs may still appear
 | **Jump from ER** | Takeoff animations from Elden Ring (standing, walking, sprinting) with a crouch and a height of about 1.15 m. Air control: turning and drifting with the stick/WASD. A separate jump button from standing and walking. Jumping down from a ledge keeps momentum. No roll after landing. |
 | **Jump attacks from ER** *(early version)* | An attack during a jump (R1 and R2, one-handed and two-handed) uses Elden Ring's jump attack animations: a swing in the air, the strike finished on the ground, recovery at ER timings. A press right after the jump is queued. 14 melee weapon groups. |
 | **Roll in all directions** | When locked on, a roll in any direction relative to the camera instead of 4 directions (own implementation in `er_engine.dll`). Dodge buffer: a dodge pressed just before a direction is not lost. |
-| **Sprint while locked on** *(since 0.2.0)* | When locked on, the roll fires on key release (as in ER and as in DSR without lock-on), so holding the key no longer makes a side or back roll. Sprint while locked on currently works only forward, as in DSR. |
+| **Sprint while locked on** *(since 0.2.0)* | When locked on, the roll fires on key release (as in ER and as in DSR without lock-on), so holding the key no longer makes a side or back roll. Since 0.5.5 *(work in progress)* sprint in every direction: the character turns toward the stick and turns back to the target on release. |
 | **Rolls and backsteps from ER** | Roll animations (4 load tiers × 4 directions) and backsteps from Elden Ring, with ER timings: faster exit from a roll, 13 frames of invincibility. Since 0.2.0 every action after a roll has its own ER timing (attack earliest, then item and another dodge, movement, guard) — a heavy roll can no longer be spammed. |
 | **Walk, run and sprint from ER** | Movement animations from Elden Ring in all 9 weapon stance sets (unarmed, one-handed, two-handed, bow, crossbow, two-handed shield) and 3 load tiers. |
 | **ER attack pace** | Attacks stay from DSR but are played faster in the parts where ER is faster: the commitment to a hit (max ×1.35) and the ending up to the next action window (max ×2). It never slows down. Covers R1 one-handed and two-handed, the running attack and the roll attack for 14 melee weapon groups (not fists, shields, bows, crossbows or catalysts). R2: a faster ending after a hit. Heavy weapons (great hammers, great axes) get a gentler ending speed-up (max ×1.5). |
@@ -151,17 +179,19 @@ Test version (pre-release): fixes checked in the game, but bugs may still appear
 - `OmniRoll=1` — roll in all directions when locked on (`0` = 4 directions as in DSR),
 - `RollBuffer=1` — dodge key buffer (`0` = off),
 - `LockOnSprint=1` — roll on key release when locked on (`0` = as in DSR: side and back rolls fire immediately on press),
+- `LockOnSprintFree=1` — sprint in every direction while locked on, work in progress (`0` = as in DSR: forward only). Tuning: `LockOnSprintTurnIn` / `LockOnSprintTurnOut` (turn speed in deg/s), `LockOnSprintTurnStart` (ms of the key hold before the turn starts),
 - `AttackFaceTarget=1` — an attack right after a roll while locked on turns the character to the target, as in Elden Ring (`0` = as in DSR: the strike goes in the roll direction),
 - `FreeOutOfCombat=1` (section `[Stamina]`) — outside combat sprinting does not use stamina; rolls, jumps and attacks always cost stamina (`0` = as in DSR). "Combat" = a locked-on target, HP loss in the last 8 s, or a weapon attack in the last 5 s.
 - `HitCancelsItem=1` (section `[Items]`) — a hit reaction interrupts drinking Estus / using an item (`0` = off; the flask may then stay in hand when knocked down),
 - `HangRepair=1` (section `[Fixes]`) — repair of a hang after a roll (`0` = off),
 - `ArtoriasPhase2=2` (section `[Bosses]`) — Artorias's second phase: `2` = automatic (on when the boss files are in the package), `1` = on, `0` = off,
+- `GwynPhase2=2` (section `[Bosses]`) — Gwyn's second phase (in testing), values as above,
 - `CheckForUpdates=1` (section `[Update]`) — check for a new version at startup (`0` = off).
 
 ## Known limitations
 
 - Jump attacks: on touching the ground there is a slight jerk of the character and a small animation skip. Very long falls: the swing ends in the air and ordinary falling continues.
-- Sprint while locked on works only forward (as in DSR); sideways and backwards the character walks.
+- Sprint in every direction while locked on (work in progress): the start is still a bit stiff, the character slows down for a moment during the turn.
 - Sometimes the character can "hang" without animation (stands still despite a held direction) until the next hit or action. Since 0.4.0 this case after a roll is repaired automatically (`HangRepair`); if the hang still happens, report it.
 - Artorias: balance tested only on NG+; the explosion on jumps still looks modest (the mechanic matters more). The transition to the second phase waits until Artorias finishes a strike that cannot be interrupted.
 - A slight slide when landing after a jump; with a weapon, hands jump to a different pose on the jump → fall transition.
@@ -174,6 +204,7 @@ Test version (pre-release): fixes checked in the game, but bugs may still appear
 - **DSROmniRoll** (Nexus Mods, DSR #1378) and **Simple Estus Walking** — ideas that our own implementations of rolling in all directions and drinking while moving are based on. Their files are not part of this package.
 - **Elden Ring Nightreign** (FromSoftware) — second-phase Artorias attack animations ported to his DSR skeleton (`files\chr\c4100.anibnd.dcx`); Gaping Dragon attack animations and AI logic from Nightreign as the model for `files\chr\c5260.anibnd.dcx` and `files\script\m10_00_00_00.luabnd.dcx`.
 - **Elden Ring** (FromSoftware) — Omen Killer attack animations ported to the Capra Demon skeleton (`files\chr\c2240.anibnd.dcx`).
+- **Dark Souls III** (FromSoftware) — Soul of Cinder animations and phase transition ported to the Gwyn skeleton (`files\chr\c5370.anibnd.dcx`); the SoC attack combos as the model for `files\script\m18_00_00_00.luabnd.dcx`.
 - **Mod Engine 2** (soulsmods; DSR-capable build from AltimorFP, distributed in the Nikolay97 package) — mod loading (not included).
 - **MinHook** (Tsuda Kageyu) — hooking library compiled into `er_engine.dll`.
 

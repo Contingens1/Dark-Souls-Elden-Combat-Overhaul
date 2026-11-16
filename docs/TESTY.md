@@ -1,6 +1,6 @@
 # Testy do zrobienia
 
-Stan: 2026-11-16 wieczór, nocna DLL = `main` (ze sprintem przy namierzeniu v3.1) + Gwyn. Wydanie 0.5.4 opublikowane. **To jedyna aktualna lista testów.** Po każdym teście poprawiam ten plik.
+Stan: 2026-11-16 wieczór, nocna DLL = `main` (ze sprintem przy namierzeniu v3.1) + Gwyn. Wydanie 0.5.5 w przygotowaniu. **To jedyna aktualna lista testów.** Po każdym teście poprawiam ten plik.
 
 ## Jak uruchomić
 
@@ -41,11 +41,21 @@ Stan: 2026-11-16 wieczór, nocna DLL = `main` (ze sprintem przy namierzeniu v3.1
 3. **Centipede Demon: test rozstrzygający** (Demon Ruins), z `launch_er_engine.bat`, **bez paczek bossów**.
    - Czy w oryginale da się trafić wyciągniętą mackę, zwłaszcza jej koniec z paszczą.
    - Od tego zależy, czy problem jest w naszych zmianach, czy w samej grze.
+4. **Linux (nowe 16.11, paczka 0.5.5):** skrypt `setup/Setup.sh` (eksperymentalny, nigdy nie uruchomiony na Linuksie).
+   - Kroki:
+     1. Rozpakuj paczkę poza folderem gry, np. `~/Games/`. Mod Engine 2 z obsługą DSR rozpakuj obok, np. `~/Games/ModEngine2`.
+     2. W Steamie wymuś Proton dla gry i uruchom ją raz do menu.
+     3. `bash ~/Games/ER-Inspired_DSR_Remake_v0.5.5/setup/Setup.sh` (albo z `--me2 <folder>`); skrypt wypisze linię do Opcji uruchamiania: `"/ścieżka/Launch_ER-Inspired_DSR_Remake.sh" %command%`.
+     4. Graj. Mod działa, jeśli przy namierzeniu przewrót idzie w każdą stronę.
+   - Kontrola bez gry: `Launch_ER-Inspired_DSR_Remake.sh --dry-run <coś> .../DarkSoulsRemastered.exe` wypisze przepisaną komendę.
+   - Wariant z logiem: `--logs` przed `%command%`; F8 zapisuje `bin/er_engine.log`.
+   - Gdy gra startuje bez moda albo jest błąd `Couldn't create process: 2e4`: spróbuj też z `--no-game-path`, a wyjście Steama uruchomionego z terminala (`steam`) zachowaj dla mnie.
+   - Największa niewiadoma: czy launcher ME2 pod Protonem przyjmie ścieżkę gry (`-p`). Dlatego jest opcja `--no-game-path`.
 
 ## Na bieżąco, przy zwykłej grze
 
 - **Zawieszenie postaci** (stoi w miejscu mimo wciśniętego kierunku): F8 od razu.
-- **Paczka 0.5.4:** jeśli zagrasz z zainstalowanej paczki (launcher wydania zaproponuje aktualizację), napisz, czy wszystko działa jak w wersji testowej. Nowe w niej: obrót w powietrzu przy skoku w dół, Capra i Gaping (w fazie testów).
+- **Paczka 0.5.5:** jeśli zagrasz z zainstalowanej paczki (launcher wydania zaproponuje aktualizację), napisz, czy wszystko działa jak w wersji testowej. Nowe w niej: sprint w każdą stronę przy namierzeniu (v3.1), Gwyn z dwiema fazami (w fazie testów), `Launch_with_logs.bat` (log i F8 dla testerów), skrypt pod Linuksa. Przy okazji sprawdź raz `Launch_with_logs.bat`: F8 w grze, potem czy `bin\er_engine.log` powstał i ma wpisy z gry.
 
 ## Znane problemy (nie trzeba zgłaszać)
 

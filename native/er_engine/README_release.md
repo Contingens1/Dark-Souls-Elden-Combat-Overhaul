@@ -1,6 +1,6 @@
 ﻿# ER-Inspired DSR Remake v{VERSION} — Dark Souls Remastered
 
-Ruch, uniki, skok i picie estusa w stylu Elden Ringa w Dark Souls Remastered. Od 0.4.0 także pierwszy przerobiony boss: Rycerz Artorias z drugą fazą i atakami z Nightreign. Od 0.5.4 w fazie testów także Capra Demon i Gaping Dragon.
+Ruch, uniki, skok i picie estusa w stylu Elden Ringa w Dark Souls Remastered. Od 0.4.0 także pierwszy przerobiony boss: Rycerz Artorias z drugą fazą i atakami z Nightreign. Od 0.5.4 w fazie testów także Capra Demon i Gaping Dragon, od 0.5.5 Gwyn z drugą fazą (Soul of Cinder z Dark Souls III).
 
 ## Wymagania
 
@@ -9,7 +9,7 @@ Ruch, uniki, skok i picie estusa w stylu Elden Ringa w Dark Souls Remastered. Od
 
 - **Mod Engine 2 z obsługą Dark Souls Remastered** — wydanie, które w swoim folderze ma plik `launchmod_darksoulsremastered.bat` (launcher przyjmuje `-t dsr`). Działający build dla DSR: <https://www.nexusmods.com/darksoulsremastered/mods/790>. Oficjalne wydanie z GitHuba (`ModEngine-2.1.0.0`) nie ma wsparcia dla DSR. Starsze wydania, tylko dla Dark Souls 3 / Elden Ring, też nie zadziałają. Rozpakuj go w dowolne miejsce (nie musi być w katalogu gry).
 - **Dark Souls Remastered** (Steam), wersja exe z SHA-256 `A45AAA36…` (aktualna w chwili wydania moda). Narzędzie konfiguracji sprawdza to samo i ostrzega, jeśli masz inną.
-- Windows 10 / 11.
+- Windows 10 / 11. Linux (Steam + Proton): eksperymentalnie, sekcja „Linux”.
 
 ## Uruchomienie (bez instalacji)
 
@@ -44,6 +44,33 @@ Aktualizacja zmienia wyłącznie pliki w folderze moda — nie dotyka gry ani Mo
 - **Graj wyłącznie offline.** Mod zmienia działanie gry w pamięci — gra online grozi banem. Mod nie ma własnej blokady sieci; przed uruchomieniem przełącz Steama w tryb offline albo ustaw w grze start w trybie offline.
 - Na innej wersji `DarkSoulsRemastered.exe` hooki się nie założą i mechaniki z DLL nie będą działać (log: `bin\er_engine.log`).
 
+## Nowe w 0.5.5
+
+Wersja testowa (pre-release).
+
+- **Sprint w każdą stronę przy namierzeniu** *(work in progress)*. Przy namierzonym celu przytrzymanie klawisza sprintu z gałką w bok, do tyłu albo po skosie daje sprint w tę stronę, jak w Elden Ringu: postać obraca się po najkrótszym kącie w stronę gałki i przechodzi w sprint, w trakcie skręca za gałką, a po puszczeniu klawisza wraca przodem do celu. Kamera zostaje na celu. Start sprintu jest jeszcze trochę sztywny (krótkie zwolnienie przy obrocie) — poprawka w drodze. Wyłączenie: `LockOnSprintFree=0` w sekcji `[Roll]` w `bin\er_engine.ini` (sprint przy namierzeniu znów tylko w przód).
+- **Gwyn z dwiema fazami** *(w fazie testów)*: sekcja „Bossowie w fazie testów”.
+- **Log do zgłaszania błędów (F8):** sekcja „Zgłaszanie błędów”.
+- **Linux (eksperymentalnie):** skrypt `setup/Setup.sh`, sekcja „Linux”.
+
+## Zgłaszanie błędów *(od 0.5.5)*
+
+Gdy coś działa źle (np. postać się zawiesza), uruchom grę plikiem **`Launch_with_logs.bat`** zamiast zwykłego launchera. To ta sama wersja moda, tylko z zapisem logu:
+1. Graj normalnie. Gdy coś pójdzie nie tak, od razu naciśnij **F8** (zapisuje ostatnie zdarzenia).
+2. Po wyjściu z gry wyślij plik **`bin\er_engine.log`** z folderu moda (np. w zgłoszeniu na GitHubie) i napisz, co się stało i mniej więcej kiedy. Poprzednie uruchomienie zostaje w `bin\er_engine.prev.log`.
+
+Log zawiera tylko zdarzenia z gry (animacje, przyciski, pozycje postaci), bez danych osobistych. `Launch_with_logs.bat` korzysta z Mod Engine 2 wskazanego w `Setup.bat`, więc najpierw raz uruchom `Setup.bat`.
+
+## Linux *(eksperymentalnie, od 0.5.5)*
+
+Nie sprawdzone na wielu systemach — zgłoszenia mile widziane.
+1. Rozpakuj mod poza folderem gry, np. do `~/Games/`.
+2. Pobierz Mod Engine 2 z obsługą Dark Souls Remastered (jak w „Wymagania”) i rozpakuj gdziekolwiek.
+3. W Steamie włącz dla gry Proton (Właściwości → Zgodność) i uruchom ją raz, żeby powstał prefiks.
+4. W terminalu: `bash setup/Setup.sh` (opcjonalnie `--me2 /ścieżka/do/ModEngine2`). Skrypt niczego nie instaluje i nie zmienia gry ani Steama, tylko zapisuje pliki w folderze moda.
+5. Wklej wypisaną linię w Opcje uruchamiania gry w Steamie: `"/ścieżka/do/moda/Launch_ER-Inspired_DSR_Remake.sh" %command%`. Wersja z logiem (zgłaszanie błędów): `--logs` przed `%command%`.
+6. Graj offline, uruchamiając grę zwykłym przyciskiem Graj w Steamie. Usunięcie: wyczyść Opcje uruchamiania.
+
 ## Nowe w 0.5.4
 
 Wersja testowa (pre-release): poprawki sprawdzone w grze, ale mogą pojawić się błędy.
@@ -55,7 +82,8 @@ Wersja testowa (pre-release): poprawki sprawdzone w grze, ale mogą pojawić si�
 
 - **Capra Demon** (Miasto Nieumarłych, niższa część) — część ciosów zastąpiona atakami Omen Killera z Elden Ringa (m.in. cios oboma tasakami); ogon porusza się jak w oryginale. AI z Dark Souls.
 - **Gaping Dragon** (Głębiny) — nowe AI na wzór Nightreign: atak dobierany do odległości i strony gracza, przerwy między atakami, obrót w trakcie ataku, plucie kwasem poniżej 70% HP. Fala po skoku trafia w chwili uderzenia, szarża rani raz.
-- Wyłączenie: usuń z `files\chr` plik `c2240.anibnd.dcx` (Capra) albo `c5260.anibnd.dcx` razem z `files\script\m10_00_00_00.luabnd.dcx` (Gaping Dragon). Aktualizator przywróci je przy następnej aktualizacji.
+- **Gwyn, Pan Popiołu** *(od 0.5.5)* (Piec Pierwszego Płomienia) — dwie fazy. Faza 1 to Gwyn z Dark Souls. Przy 0 HP Gwyn nie ginie: cofa się, opada na kolano, wbija miecz w ziemię (wybuch ognia i fala wokół niego, ok. 4 m — przewrót albo odejście ją omija) i odzyskuje pełny pasek HP. W fazie 2 walczy ruchami Soul of Cinder z Dark Souls III; płomień na całym ostrzu i czerwona poświata na piersi oznaczają fazę 2. Każdy pasek ma mniej HP niż oryginalny, razem walka jest trochę dłuższa.
+- Wyłączenie: usuń z `files\chr` plik `c2240.anibnd.dcx` (Capra), `c5260.anibnd.dcx` razem z `files\script\m10_00_00_00.luabnd.dcx` (Gaping Dragon) albo `c5370.anibnd.dcx` razem z `files\script\m18_00_00_00.luabnd.dcx` (Gwyn; do tego `GwynPhase2=0` w `bin\er_engine.ini`). Aktualizator przywróci pliki przy następnej aktualizacji.
 
 ## Nowe w 0.5.3
 
@@ -132,7 +160,7 @@ Wersja testowa (pre-release): poprawki sprawdzone w grze, ale mogą pojawić si�
 | **Skok z ER** | Animacje wybicia z Elden Ringa (z miejsca, w marszu, ze sprintu) z przysiadem i wysokością ok. 1,15 m. Sterowanie w locie: obrót i dosuwanie gałką/WASD. Osobny przycisk skoku z miejsca i w marszu. Skok z półki w dół zachowuje rozpęd. Bez przewrotu po lądowaniu. |
 | **Ataki z wyskoku z ER** *(wczesna wersja)* | Atak w trakcie skoku (R1 i R2, jedną ręką i oburącz) używa animacji ataków z wyskoku z Elden Ringa: zamach w locie, cios dokończony na ziemi, recovery w czasach ER. Kliknięcie tuż po skoku jest kolejkowane. 14 grup broni białej. |
 | **Przewrót we wszystkie strony** | Przy namierzonym celu przewrót w dowolnym kierunku względem kamery zamiast 4 kierunków (własna implementacja w `er_engine.dll`). Bufor klawisza uniku: unik wciśnięty tuż przed kierunkiem nie przepada. |
-| **Sprint przy namierzeniu** *(od 0.2.0)* | Przy namierzonym celu przewrót wychodzi przy puszczeniu klawisza (jak w ER i jak w DSR bez namierzenia), więc przytrzymanie klawisza nie robi już przewrotu w bok ani w tył. Sprint przy namierzeniu działa na razie tylko w przód, jak w DSR. |
+| **Sprint przy namierzeniu** *(od 0.2.0)* | Przy namierzonym celu przewrót wychodzi przy puszczeniu klawisza (jak w ER i jak w DSR bez namierzenia), więc przytrzymanie klawisza nie robi już przewrotu w bok ani w tył. Od 0.5.5 *(work in progress)* sprint w każdą stronę: postać obraca się w stronę gałki, a po puszczeniu wraca przodem do celu. |
 | **Przewroty i backstepy z ER** | Animacje przewrotów (4 progi obciążenia × 4 kierunki) i backstepów z Elden Ringa, z czasami ER: szybsze wyjście z przewrotu, nietykalność 13 klatek. Od 0.2.0 każda akcja po przewrocie ma własny czas z ER (atak najwcześniej, potem przedmiot i kolejny unik, ruch, garda) — ciężkiego przewrotu nie da się już spamować. |
 | **Chód, bieg i sprint z ER** | Animacje ruchu z Elden Ringa we wszystkich 9 zestawach postaw broni (bez broni, jedną ręką, oburącz, łuk, kusza, tarcza oburącz) i 3 progach obciążenia. |
 | **Tempo ataków z ER** | Ataki zostają z DSR, ale są odtwarzane szybciej w tych fragmentach, gdzie ER jest szybszy: wejście w cios do trafienia (maks. ×1,35) i końcówka do okna następnej akcji (maks. ×2). Nigdy nie zwalnia. Obejmuje R1 jedną ręką i oburącz, atak z biegu i z przewrotu dla 14 grup broni białej (bez pięści, tarcz, łuków, kusz i katalizatorów). R2: przyspieszona końcówka po trafieniu. Ciężkie bronie (wielkie młoty, wielkie topory) mają łagodniejsze przyspieszenie końcówki (maks. ×1,5). |
@@ -151,17 +179,19 @@ Wersja testowa (pre-release): poprawki sprawdzone w grze, ale mogą pojawić si�
 - `OmniRoll=1` — przewrót we wszystkie strony przy namierzeniu (`0` = 4 kierunki jak w DSR),
 - `RollBuffer=1` — bufor klawisza uniku (`0` = wyłączony),
 - `LockOnSprint=1` — przy namierzeniu przewrót przy puszczeniu klawisza (`0` = jak w DSR: przewrót w bok i w tył od razu przy wciśnięciu),
+- `LockOnSprintFree=1` — sprint w każdą stronę przy namierzeniu, work in progress (`0` = jak w DSR: tylko w przód). Strojenie: `LockOnSprintTurnIn` / `LockOnSprintTurnOut` (tempo obrotu w °/s), `LockOnSprintTurnStart` (po ilu ms trzymania klawisza zaczyna się obrót),
 - `AttackFaceTarget=1` — atak zaraz po przewrocie przy namierzeniu obraca postać do celu, jak w Elden Ring (`0` = jak w DSR: cios idzie w kierunku przewrotu),
 - `FreeOutOfCombat=1` (sekcja `[Stamina]`) — poza walką sprint nie zużywa wytrzymałości; przewroty, skoki i ataki kosztują zawsze (`0` = jak w DSR). „Walka" = namierzony cel, utrata HP w ostatnich 8 s albo atak bronią w ostatnich 5 s.
 - `HitCancelsItem=1` (sekcja `[Items]`) — reakcja na trafienie przerywa picie estusa / użycie przedmiotu (`0` = wyłączone; flaszka potrafi wtedy zostać w ręce przy powaleniu),
 - `HangRepair=1` (sekcja `[Fixes]`) — naprawa zawieszenia po przewrocie (`0` = wyłączona),
 - `ArtoriasPhase2=2` (sekcja `[Bosses]`) — druga faza Artoriasa: `2` = automatycznie (włączona, gdy w paczce są pliki bossa), `1` = włączona, `0` = wyłączona,
+- `GwynPhase2=2` (sekcja `[Bosses]`) — druga faza Gwyna (w fazie testów), wartości jak wyżej,
 - `CheckForUpdates=1` (sekcja `[Update]`) — sprawdzanie nowej wersji przy uruchomieniu (`0` = wyłączone).
 
 ## Znane ograniczenia
 
 - Ataki z wyskoku: przy dotknięciu ziemi widać lekkie szarpnięcie postaci i mały przeskok animacji. Przy bardzo długim upadku zamach kończy się w powietrzu i dalej leci zwykłe spadanie.
-- Sprint przy namierzonym celu działa tylko w przód (jak w DSR); w bok i w tył postać idzie krokiem.
+- Sprint w każdą stronę przy namierzeniu (work in progress): start jest jeszcze trochę sztywny, przy obrocie postać na chwilę zwalnia.
 - Sporadycznie postać potrafi „zawisnąć” bez animacji (stoi mimo wciśniętego kierunku) do następnego trafienia lub akcji. Od 0.4.0 przypadek po przewrocie jest naprawiany automatycznie (`HangRepair`); jeśli zawieszenie nadal się zdarza, zgłoś je.
 - Artorias: balans sprawdzany tylko na NG+; wybuch przy skokach wygląda jeszcze skromnie (mechanika jest ważniejsza). Przejście do drugiej fazy czeka, aż Artorias dokończy cios, którego nie da się przerwać.
 - Ślizganie przy lądowaniu po R1 i po skoku ze sprintu (patrz „Nowe w 0.5.2”); z bronią ręce przeskakują do innej pozy przy przejściu skok → spadanie.
@@ -174,6 +204,7 @@ Wersja testowa (pre-release): poprawki sprawdzone w grze, ale mogą pojawić si�
 - **DSROmniRoll** (Nexus Mods, DSR #1378) i **Simple Estus Walking** — pomysły, na których wzorowane są własne implementacje przewrotu we wszystkie strony i picia w ruchu. Ich pliki nie są częścią tej paczki.
 - **Elden Ring Nightreign** (FromSoftware) — animacje ataków Artoriasa drugiej fazy przeniesione na jego szkielet z DSR (`files\chr\c4100.anibnd.dcx`); animacje ataków i logika AI Gaping Dragona z Nightreign jako wzór dla `files\chr\c5260.anibnd.dcx` i `files\script\m10_00_00_00.luabnd.dcx`.
 - **Elden Ring** (FromSoftware) — animacje ataków Omen Killera przeniesione na szkielet Capra Demona (`files\chr\c2240.anibnd.dcx`).
+- **Dark Souls III** (FromSoftware) — animacje i przejście fazy Soul of Cinder przeniesione na szkielet Gwyna (`files\chr\c5370.anibnd.dcx`); kombinacje ataków SoC jako wzór dla `files\script\m18_00_00_00.luabnd.dcx`.
 - **Mod Engine 2** (soulsmods; wersja z obsługą DSR od AltimorFP, z paczki Nikolay97) — ładowanie modów (nie jest dołączony).
 - **MinHook** (Tsuda Kageyu) — biblioteka hooków wkompilowana w `er_engine.dll`.
 

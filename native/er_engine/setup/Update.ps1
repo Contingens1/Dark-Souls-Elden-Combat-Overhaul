@@ -25,7 +25,7 @@ $Version = '{VERSION}'
 $Repo = '{REPO}'
 $PackageDir = Split-Path -Parent $PSScriptRoot
 $IniPath = Join-Path $PackageDir 'bin\er_engine.ini'
-$Preserved = @('bin\er_engine.ini', 'bin\er_engine.log', 'setup\modengine2_path.txt')
+$Preserved = @('bin\er_engine.ini', 'bin\er_engine.log', 'bin\er_engine.prev.log', 'setup\modengine2_path.txt', 'setup\modengine2_path_linux.txt')
 $MirroredDirs = @('bin', 'files', 'setup')
 
 function Show-Box([string]$text, [string]$buttons = 'OK', [string]$icon = 'Information') {
