@@ -12,6 +12,13 @@ TAE events of 904/905: a clone of 1790 (DSR landing after a jump) without roll i
 or sprint jump ([Jump] LandToRun), while the game's state machine is already in the move state, so the windows only
 matter for the engine-side jump tables. 1790 itself is not changed (the 2026-11-1x version of this tool rewrote it).
 
+Landing effects (player test 2026-11-16: "a dust effect with a sound, since 0.5.3"): the clone also carried 1790's
+landing dust (foot effect 40 / 34) and landing sounds (floor 3001, SFX 7701, armour 6256), which fired right at the
+touchdown (904 starts at 0.15 s, 905 at 0.30 s); they are dropped, ordinary run steps stay. The jump clips 900-902 keep
+the DS1 landing events from ~0.65 s (foot dust and the landing sound at 0.67 s, dust 40 at 0.87 s); since 0.5.3 the DLL
+plays the ER jump clip to its end (0.74-0.84 s) instead of cutting it at 0.66 s, so those fired at the touchdown too.
+They are dropped from the jump clips (the ER clip has no landing; 904/905 or the game's landing follow).
+
 Works on mod files only. Default target: the night package (dist/mods/bossy_nightreign/files_c0000_night/chr); a
 file missing there (c0000_a00_lo) is taken from the main mod (dist/mods/c0000_er_engine/files/chr). Re-running
 replaces the entries it added.
@@ -41,6 +48,11 @@ FALL_LOOP = ("a00_1550.hkx", "a000_202040.hkx")
 SOURCE = 1790
 ER_CANCEL = {4: 0.03, 16: 0.13, 22: 0.13, 26: 0.13, 29: 0.13, 31: 0.13, 11: 0.17, 32: 0.03}
 DROP = {7, 8}  # turn lock, roll invincibility
+FOOT_FX, SOUND = 112, 128              # TAE types: floor effect on a foot dummy poly (3000 / 3200), sound (type, id)
+LANDING_DUST = {40, 34}                # foot effect variants of a landing (run steps are 5 / 6)
+LANDING_SOUNDS = {(8, 3001), (5, 7701), (9, 6256)}
+JUMP_ANIMS = (900, 901, 902)
+JUMP_FX_FROM = 0.65                    # s: the DS1 landing part of the jump clips (0.5.2 cut the clip at 0.66 s)
 
 
 def jt(e):
@@ -48,11 +60,21 @@ def jt(e):
     return struct.unpack_from("<i", p)[0] if int(e.Type) == 0 and len(p) >= 4 else None
 
 
+def ints2(e):
+    p = bytes(e.GetParameterBytes(False))
+    return struct.unpack_from("<2i", p) if len(p) >= 8 else (None, None)
+
+
+def landing_fx(e) -> bool:
+    t, (a, b) = int(e.Type), ints2(e)
+    return (t == FOOT_FX and b in LANDING_DUST) or (t == SOUND and (a, b) in LANDING_SOUNDS)
+
+
 def er_events(src, TAE):
     out = []
     for e in src.Events:
         j = jt(e)
-        if j in DROP:
+        if j in DROP or landing_fx(e):
             continue
         start = ER_CANCEL.get(j, e.StartTime)
         out.append(TAE.Event(start, e.EndTime, e.Type, e.Unk04, e.GetParameterBytes(False), False))
@@ -94,13 +116,19 @@ def main(argv=None) -> int:
         for e in er_events(src, TAE):
             clone.Events.Add(e)
         tae.Animations.Add(clone)
+    dropped = 0
+    for a in [a for a in tae.Animations if int(a.ID) in JUMP_ANIMS]:
+        for e in [e for e in a.Events if int(e.Type) in (FOOT_FX, SOUND) and e.StartTime >= JUMP_FX_FROM - 1e-4]:
+            a.Events.Remove(e)
+            dropped += 1
     anims = sorted(list(tae.Animations), key=lambda a: a.ID)
     tae.Animations.Clear()
     for a in anims:
         tae.Animations.Add(a)
     tf.Bytes = to_memory(tae.Write())
     write_binder(ani, chr_dir / "c0000.anibnd.dcx")
-    print(f"  TAE: {sorted(NEW)} = clone of {SOURCE} without JT{sorted(DROP)}, ER cancel windows")
+    print(f"  TAE: {sorted(NEW)} = clone of {SOURCE} without JT{sorted(DROP)} and landing dust / sounds, ER cancel windows")
+    print(f"  TAE: {JUMP_ANIMS} - {dropped} landing effect / sound events from {JUMP_FX_FROM} s removed")
 
     # HKX (c0000_a00_lo.anibnd)
     lo = read_binder(BND3, str(source_path(chr_dir, "c0000_a00_lo.anibnd.dcx")))

@@ -289,8 +289,8 @@ static void AirMomentumTick(float dt);  // nizej, rozped w spadaniu po skoku
 static void AirMomentumStart(int anim);
 static void AirMomentumOnOtherAnim();
 static void LandRunOnTouchdown(const char* how);              // below: ER landing into a run ([Jump] LandToRun)
-static void LandRunOnPlayAnim(void* ctx, int anim, int layer);  // below: the game's requests while it plays
-static void LandRunTick();
+static bool LandRunOnPlayAnim(void* ctx, int anim, int layer);  // below: the game's requests while it plays
+static void LandRunTick(void* p3);
 static void* g_momCtx = nullptr;        // ctx i a6 zlecenia skoku - do zakonczenia animacji
 static DWORD g_sprintSeenAt = 0;        // last input frame with the sprint flag (+0x1E4) on (SprintHeavySubstitute)
 static int g_momA6 = 0;
@@ -529,6 +529,57 @@ static float g_lockSprintAlign = 30.f;     // [Roll] LockOnSprintAlign (deg): sp
 // stick when the game raises the sprint.
 static float g_lockSprintTurnAccel = 4000.f;  // [Roll] LockOnSprintTurnAccel (deg/s^2, 0 = constant speed)
 static DWORD g_lockSprintTurnStartMs = 200;   // [Roll] LockOnSprintTurnStart (ms of the key hold)
+// v3.2 (player test 16.11 evening: braking and turning very good, the start still a bit wooden and slowing; "in ER the
+// character first runs sideways for about the run-up, then goes into the sprint and only then turns"; log: every
+// switch of the run clip back -> side -> front during the turn drops the speed from ~4 to 2.3-3 m/s, and the sprint
+// then needs ~0.3 s to reach 6 m/s):
+// - with the stick to the side or at a diagonal (angle to the facing <= LockOnSprintBackAngle) the turn waits for the
+//   game's sprint (0.4 s of the hold) and the character keeps strafing until then; further back it starts early
+//   (LockOnSprintTurnStart). 0 = always early (v3.1), 180 = always with the sprint (v3).
+// - speed floor (LockOnSprintSpeedHold): from the start of the turn until kLsFloorSprintMs into the sprint the DLL lifts
+//   the horizontal velocity the game computed (FUN_1402bbe40, hook ChrVelDetour) to at least the speed at the turn
+//   start (at most kLsFloorRunCap), rising to kLsFloorSprint after the sprint starts. It only lifts, never slows, and
+//   points along the stick.
+static float g_lockSprintBackAngle = 0.f;     // [Roll] LockOnSprintBackAngle (deg; the code default = v3.1)
+static bool g_lockSprintSpeedHold = false;    // [Roll] LockOnSprintSpeedHold
+constexpr float kLsFloorRunCap = 4.2f, kLsFloorSprint = 5.5f, kLsFloorRamp = 6.f;  // m/s, m/s, m/s^2
+constexpr DWORD kLsFloorSprintMs = 450;
+static float g_lsFloor = 0.f;                 // m/s, 0 = off (read by ChrVelDetour in the physics step)
+static float g_lsFloorDir[2] = {0.f, 0.f};    // unit stick direction in the world (x, z)
+static DWORD g_lsFloorSprintAt = 0;           // tick the sprint state began while the floor was on
+static int g_lsFloorHits = 0;                 // diag: physics steps lifted since the last probe line
+static float g_lsFloorGameMin = -1.f;         // diag: lowest speed the game wanted in those steps
+// v3.3 (player test 16.11 night: "locking on during a sprint that is not toward the target slows the character down;
+// the sprint must go on as if nothing happened"). Log: on a lock change the game zeroes the sprint ramp (the setter
+// FUN_14037ac00 clears (p3+0x1A8)+0x1B8; the controller sprints only above 0.3, DAT_1412e9aac) and, with the turn to
+// the target over 90 deg (DAT_141615c70; 150 = the large clip), plays the turn clip x0610 on layers 8/24 through
+// PlayAnim (120610 with a sword, 0.67 s, the locomotion controller off meanwhile: 4.4 -> 0.07 m/s). The same clip
+// plays on lock-off.
+// v3.3 test (player 16.11 night: the character hung until the sprint key was released): skipping the clip in PlayAnim
+// does not work - the caller asked for it again in every frame (120610, then 120640 and -1, for the whole 800 ms
+// guard) until it played. Keeping the ramp worked (forward lock-on without a dip). The clip code is gone.
+// v3.4 (LockOnSprintLockGuard): the turn clip comes with the switch of the movement mode (p3+0x21D 1 -> 0 on lock-on)
+// when the turn to the target is over 90 deg (in v1 the clips came only with switches, in v3 never without one). So
+// while the player sprints, the DLL keeps the free mode at the setter FUN_14037ac00 (LockModeSetDetour, as the v1 hook)
+// and lets the switch through once the facing is within kLsSwitchAngle of the target: a forward lock-on in the next
+// frame, otherwise in the turn back to the target after the sprint. Every switch the setter makes during a sprint
+// keeps the ramp it clears.
+static bool g_lockSprintLockGuard = false;    // [Roll] LockOnSprintLockGuard
+// v3.4 test (16.11 night): sprint on lock-on OK; the switch let through at 71 deg still got the turn clip (a roll
+// pressed then waited 469 ms in the queue), and a forward lock-on flip-flopped (let through, held again next frame,
+// ~0.3 s). v3.5: let through only near the target, one deferral per lock-on, turn back after an action.
+constexpr float kLsSwitchAngle = 0.34906585f; // 20 deg
+static bool g_lsDeferLock = false;            // the setter turns the game's 0 into 1 (free mode kept)
+static bool g_lsDeferDone = false;            // let through for this lock-on: no new deferral until mode 0 / lock lost
+// v3.6 (reverted 16.11 night, snapshot work\LOCKSPRINT_V36_2026-11-16_REGRESSION): the turn clips on a mode switch with
+// the stick held come from the player ESD (c0000.esd state 0 -> 37 plays 610, -> 38 plays 640 on slot 2 = layers 8/24,
+// conditions f211 / f253). v3.6 cleared ChrCtrl+0x1B0 to stop them: that byte is NOT a turn-clip switch but the
+// movement-enabled flag (the ESD turn states clear it on entry and set it on exit, Cmd(1,101)); with it at 0 the
+// locomotion controller stops (move dir -1, speed 0) - player test: a slide (the speed floor) and then a hang on every
+// sprint. Never write ChrCtrl+0x1B0. Ideas for the clips: docs\nieoficjalne\PLAN_SPRINT_NAMIERZENIE.md.
+static BYTE* g_lsP3 = nullptr;                // the player's ChrCtrl (for the setter hook)
+static int g_lsDeferCalls = 0;                // diag: setter calls held at 1 in this deferral
+static bool g_lsPrevSprinting = false;        // the player was sprinting in the last tick (key, stick, game flag)
 enum { kLsIdle = 0, kLsTurnIn, kLsSprint, kLsTurnOut };
 static int g_lsState = kLsIdle;
 static bool g_lsHold = false;      // physics-step yaw hold on (ChrPhysStepDetour)
@@ -548,6 +599,9 @@ static float g_landRunStartSec = 0.15f, g_landDashStartSec = 0.30f;  // clip tim
 static DWORD g_landRunHoldMs = 450, g_landDashHoldMs = 500;          // hand-over to the game's locomotion
 static float g_landRunBlendInSec = 0.10f, g_landRunBlendOutSec = 0.20f;
 static DWORD g_landRunRootHoldMs = 130;  // [Jump] LandRunRootHold: velocity set by the DLL while the landing blends in
+static bool g_landDropBridge = false;    // [Jump] LandDropBridge: speed bridge after the hand-over (see g_lrBridge)
+static float g_landSmoothStep = 0.f;     // [Jump] LandSmoothRate (cm/s per physics step, 0 = off): see g_lrBridge
+static bool g_landKeepOnGameEnd = false; // [Jump] LandKeepOnGameEnd: see LandRunOnPlayAnim
 // [Jump] JumpClipToEnd (test 2026-11-15, needs JT27 ending at ~0.64 s: tools/set_jump_gravity.py --jt27-end): the ER
 // jump clip plays to its end instead of being cut at 0.65 s; its last pose is the first pose of the ER flight loop.
 static bool g_jumpClipToEnd = false;
@@ -778,8 +832,13 @@ static void LoadConfigIni() {
     g_lockSprintAlign = static_cast<float>(GetPrivateProfileIntA("Roll", "LockOnSprintAlign", 30, iniPath));
     g_lockSprintTurnAccel = static_cast<float>(GetPrivateProfileIntA("Roll", "LockOnSprintTurnAccel", 4000, iniPath));
     g_lockSprintTurnStartMs = GetPrivateProfileIntA("Roll", "LockOnSprintTurnStart", 200, iniPath);
-    Log("config: LockOnSprintTurnIn=%.0f TurnOut=%.0f deg/s Align=%.0f deg Accel=%.0f deg/s2 TurnStart=%lu ms",
-        g_lockSprintTurnIn, g_lockSprintTurnOut, g_lockSprintAlign, g_lockSprintTurnAccel, g_lockSprintTurnStartMs);
+    g_lockSprintBackAngle = static_cast<float>(GetPrivateProfileIntA("Roll", "LockOnSprintBackAngle", 0, iniPath));
+    g_lockSprintSpeedHold = GetPrivateProfileIntA("Roll", "LockOnSprintSpeedHold", 0, iniPath) != 0;
+    g_lockSprintLockGuard = GetPrivateProfileIntA("Roll", "LockOnSprintLockGuard", 0, iniPath) != 0;
+    Log("config: LockOnSprintTurnIn=%.0f TurnOut=%.0f deg/s Align=%.0f deg Accel=%.0f deg/s2 TurnStart=%lu ms "
+        "BackAngle=%.0f deg SpeedHold=%d LockGuard=%d",
+        g_lockSprintTurnIn, g_lockSprintTurnOut, g_lockSprintAlign, g_lockSprintTurnAccel, g_lockSprintTurnStartMs,
+        g_lockSprintBackAngle, g_lockSprintSpeedHold ? 1 : 0, g_lockSprintLockGuard ? 1 : 0);
     g_landStartTimeOn = GetPrivateProfileIntA("Jump", "LandStartTime", 0, iniPath) != 0;
     g_landBlendSec = GetPrivateProfileIntA("Jump", "LandBlend", 0, iniPath) / 1000.f;
     g_landSpeedCap = static_cast<float>(GetPrivateProfileIntA("Jump", "LandSpeedCap", 0, iniPath));
@@ -800,8 +859,14 @@ static void LoadConfigIni() {
     g_landRunBlendInSec = GetPrivateProfileIntA("Jump", "LandRunBlendIn", 100, iniPath) / 1000.f;
     g_landRunBlendOutSec = GetPrivateProfileIntA("Jump", "LandRunBlendOut", 200, iniPath) / 1000.f;
     g_landRunRootHoldMs = static_cast<DWORD>(GetPrivateProfileIntA("Jump", "LandRunRootHold", 130, iniPath));
+    g_landDropBridge = GetPrivateProfileIntA("Jump", "LandDropBridge", 0, iniPath) != 0;
+    g_landSmoothStep = GetPrivateProfileIntA("Jump", "LandSmoothRate", 0, iniPath) / 100.f;
+    g_landKeepOnGameEnd = GetPrivateProfileIntA("Jump", "LandKeepOnGameEnd", 0, iniPath) != 0;
     g_jumpClipToEnd = GetPrivateProfileIntA("Jump", "JumpClipToEnd", 0, iniPath) != 0;
-    Log("config: LandRunRootHold=%lu ms JumpClipToEnd=%d", g_landRunRootHoldMs, g_jumpClipToEnd ? 1 : 0);
+    Log("config: LandRunRootHold=%lu ms LandDropBridge=%d LandSmoothRate=%.2f m/s per step LandKeepOnGameEnd=%d "
+        "JumpClipToEnd=%d",
+        g_landRunRootHoldMs, g_landDropBridge ? 1 : 0, g_landSmoothStep, g_landKeepOnGameEnd ? 1 : 0,
+        g_jumpClipToEnd ? 1 : 0);
     g_airTurnSpeed = static_cast<float>(GetPrivateProfileIntA("Jump", "AirTurnSpeed", 0, iniPath));
     Log("config: AirTurnSpeed=%.0f deg/s", g_airTurnSpeed);
     Log("config: LandToRun=%d start %.2f/%.2f s, hold %lu/%lu ms, blend in %.2f out %.2f s", g_landRunOn ? 1 : 0,
@@ -1199,10 +1264,22 @@ static const char* LsName(int s) {
     return kNames[s & 3];
 }
 
+static float LandRunSpeed();  // horizontal proxy speed (land-to-run section below)
+
 static void LsSet(int s, const char* why) {
     if (s == g_lsState) return;
     DWORD now = GetTickCount();
-    Log("[%7lu ms] lock-on sprint: %s -> %s (%s)", now - g_t0, LsName(g_lsState), LsName(s), why);
+    // v3.2 speed floor: armed at the turn start with the speed the character has then, off outside the start
+    if (s == kLsTurnIn && g_lockSprintSpeedHold) {
+        float v = LandRunSpeed();
+        g_lsFloor = v > kLsFloorRunCap ? kLsFloorRunCap : (v > 0.f ? v : 0.f);
+        g_lsFloorSprintAt = 0;
+    } else if (s != kLsSprint) {
+        g_lsFloor = 0.f;
+        g_lsFloorSprintAt = 0;
+    }
+    Log("[%7lu ms] lock-on sprint: %s -> %s (%s)%s", now - g_t0, LsName(g_lsState), LsName(s), why,
+        s == kLsTurnIn && g_lsFloor > 0.f ? ", speed floor armed" : "");
     g_lsState = s;
     g_lsSince = now ? now : 1;
     if (s == kLsIdle) {
@@ -1271,12 +1348,44 @@ static void LockSprintTick(BYTE* ctx, float dt, void* p3) {
 
     bool held = g_rollKey > 0 && g_keyDown[g_rollKey];
     DWORD heldMs = held ? now - g_keyDownAt[g_rollKey] : 0;
-    // The turn starts at LockOnSprintTurnStart ms of the hold (a shorter press is a roll, released before that).
-    bool wantTurn = held && moving && (sprint || heldMs >= g_lockSprintTurnStartMs);
-    bool alignedNow = fabsf(WrapPi(moveYaw - yaw)) <= align;
+    // The turn starts with the game's sprint (0.4 s of the hold); with the stick further back than LockOnSprintBackAngle
+    // already at LockOnSprintTurnStart ms of the hold (a shorter press is a roll, released before that).
+    float offAngle = fabsf(WrapPi(moveYaw - yaw));
+    bool early = offAngle > g_lockSprintBackAngle * 0.017453293f && heldMs >= g_lockSprintTurnStartMs;
+    bool wantTurn = held && moving && (sprint || early);
+    bool alignedNow = offAngle <= align;
+
+    // v3.4: the lock mode switch held back by the setter hook goes through once the facing is near the target, or when
+    // there is nothing left to hold it for (see g_lockSprintLockGuard). v3.5: only near the target (kLsSwitchAngle);
+    // after an action the character is turned back first (below); one deferral per lock-on (g_lsDeferDone).
+    g_lsP3 = static_cast<BYTE*>(p3);
+    g_lsPrevSprinting = held && moving && sprint;
+    BYTE modeNow = 0xFF;
+    __try { modeNow = static_cast<BYTE*>(p3)[0x21D]; } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    if (g_lsDeferDone && (!locked || modeNow == 0)) g_lsDeferDone = false;
+    if (g_lsDeferLock) {
+        float tgtYaw = 0.f;
+        bool haveTgt = locked && LockTargetYaw(p3, &tgtYaw);
+        float toTarget = haveTgt ? fabsf(WrapPi(tgtYaw - yaw)) : 0.f;
+        const char* why = !g_lockSprintLockGuard ? "switched off"
+                        : !locked                ? "target lost"
+                        : !ground                ? "left the ground"
+                        : !haveTgt               ? "no lock-on point"
+                        : toTarget < kLsSwitchAngle ? "facing the target"
+                                                    : nullptr;
+        if (why) {
+            g_lsDeferLock = false;
+            g_lsDeferDone = locked;
+            Log("[%7lu ms] lock-on sprint: lock mode switch let through (%s, %.0f deg to the target, %d setter calls held)",
+                now - g_t0, why, toTarget * 57.29578f, g_lsDeferCalls);
+        }
+    }
 
     if (g_lsState != kLsIdle && (!locked || !ground || busy))
         LsSet(kLsIdle, !locked ? "target lost" : !ground ? "left the ground" : "action");
+    // v3.5: the switch is still held (the sprint ended, or an action such as a roll ran in the free mode): turn back to
+    // the target first, so the switch comes with a small angle and the game has no turn clip to play.
+    if (g_lsDeferLock && g_lsState == kLsIdle && locked && ground && !busy && !wantTurn) LsSet(kLsTurnOut, "lock switch pending");
     switch (g_lsState) {
     case kLsIdle:
     case kLsTurnOut:
@@ -1309,6 +1418,21 @@ static void LockSprintTick(BYTE* ctx, float dt, void* p3) {
             else if (now - g_lsSince > 1000) LsSet(kLsIdle, "turn out timeout");
         }
     }
+    // v3.2 speed floor: run speed through the turn, then up to kLsFloorSprint in the first kLsFloorSprintMs of the sprint
+    if (g_lsFloor > 0.f) {
+        if (!moving || (g_lsState != kLsTurnIn && g_lsState != kLsSprint)) {
+            g_lsFloor = 0.f;
+        } else {
+            float wl = sqrtf(wx * wx + wz * wz);
+            g_lsFloorDir[0] = wx / wl;
+            g_lsFloorDir[1] = wz / wl;
+            if (g_lsState == kLsSprint) {
+                if (!g_lsFloorSprintAt) g_lsFloorSprintAt = now ? now : 1;
+                if (now - g_lsFloorSprintAt >= kLsFloorSprintMs) g_lsFloor = 0.f;
+                else if (g_lsFloor < kLsFloorSprint) g_lsFloor = fminf(g_lsFloor + kLsFloorRamp * dt, kLsFloorSprint);
+            }
+        }
+    }
 
     if (!kDiag) return;
     static DWORD lastLog = 0, lastAt = 0;
@@ -1316,10 +1440,11 @@ static void LockSprintTick(BYTE* ctx, float dt, void* p3) {
     if (g_lsState == kLsIdle && !(locked && held)) return;
     if (now - lastLog < (g_lsState == kLsIdle ? 250u : 100u)) return;
     float x = 0.f, z = 0.f, speed = -1.f, tgt = 0.f;
-    int dir = -9, dash = -1, ramp100 = -1;
+    int dir = -9, dash = -1, ramp100 = -1, mode = -1;
     __try {
         x = *reinterpret_cast<float*>(pos + 0x10);
         z = *reinterpret_cast<float*>(pos + 0x18);
+        mode = static_cast<BYTE*>(p3)[0x21D];
         if (BYTE* mc = *reinterpret_cast<BYTE**>(static_cast<BYTE*>(p3) + 0x1A8)) {
             dir = *reinterpret_cast<int*>(mc + 0x13C);
             dash = mc[0x1B0];
@@ -1329,13 +1454,38 @@ static void LockSprintTick(BYTE* ctx, float dt, void* p3) {
     bool haveTgt = LockTargetYaw(p3, &tgt);
     if (lastAt && now > lastAt) speed = sqrtf((x - lastX) * (x - lastX) + (z - lastZ) * (z - lastZ)) * 1000.f / (now - lastAt);
     Log("[%7lu ms] lock-on sprint probe: %s, held %lu ms, yaw %.0f, stick %.0f, target %s%.0f, diff %.0f deg, turn %.0f deg/s, "
-        "sprint flag %u%s, move dir %d, move sprint %d, ramp %.2f, speed %.2f m/s, axes %.2f %.2f", now - g_t0,
+        "sprint flag %u%s, move dir %d, move sprint %d, ramp %.2f, speed %.2f m/s, floor %.2f (lifted %d steps, game min %.2f), "
+        "mode %d%s, axes %.2f %.2f", now - g_t0,
         LsName(g_lsState), heldMs, yaw * 57.29578f, moveYaw * 57.29578f, haveTgt ? "" : "?", tgt * 57.29578f,
         diff * 57.29578f, g_lsOmega * 57.29578f, sprint, suppressed ? " (held off)" : "", dir, dash, ramp100 / 100.f, speed,
-        g_axis[0], g_axis[1]);
+        g_lsFloor, g_lsFloorHits, g_lsFloorGameMin, mode, g_lsDeferLock ? " (lock switch held)" : "", g_axis[0], g_axis[1]);
+    g_lsFloorHits = 0;
+    g_lsFloorGameMin = -1.f;
     lastLog = lastAt = now;
     lastX = x;
     lastZ = z;
+}
+
+// Diag (v3.5): every turn clip (x0600-x0649 on layer 8) of the player with the facing, the stick, the target and the
+// movement mode, to find out when the game turns with a clip on lock-off (player 16.11: "a turn to the front on
+// lock-off that makes no sense"; v3.2 log: on lock-off during a sprint 3 of 6 times, not explained by the angle).
+static void LsLogTurnClip(void* ctx, int a3, int a4) {
+    if (!kDiag || a4 != 8 || a3 < 10000 || a3 % 10000 < 600 || a3 % 10000 >= 650) return;
+    if (ctx != g_playerAnimCtx || !g_lsP3) return;
+    float yaw = 0.f, tgt = 0.f;
+    int mode = -1, dir = -9, locked = -1, moveOn = -1;
+    __try {
+        if (BYTE* pos = ChrPosData()) yaw = *reinterpret_cast<float*>(pos + 0x04);
+        mode = g_lsP3[0x21D];
+        moveOn = g_lsP3[0x1B0];  // movement-enabled flag (read only, see the v3.6 note)
+        locked = LockTargetChr(g_lsP3) != nullptr;
+        if (BYTE* mc = *reinterpret_cast<BYTE**>(g_lsP3 + 0x1A8)) dir = *reinterpret_cast<int*>(mc + 0x13C);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    bool haveTgt = LockTargetYaw(g_lsP3, &tgt);
+    Log("[%7lu ms] TURN CLIP %d: yaw %.0f, target %s%.0f (%.0f deg off), locked %d, mode %d, move dir %d, state %s, "
+        "sprinting %d, movement on %d, axes %.2f %.2f", GetTickCount() - g_t0, a3, yaw * 57.29578f,
+        haveTgt ? "" : "?", tgt * 57.29578f, haveTgt ? fabsf(WrapPi(tgt - yaw)) * 57.29578f : -1.f, locked, mode, dir,
+        LsName(g_lsState), g_lsPrevSprinting ? 1 : 0, moveOn, g_axis[0], g_axis[1]);
 }
 
 // --- Two-phase bosses (boss test packages, docs/PLAN_PROJEKTU.md §6a Artorias, §6c Gwyn) -----------------
@@ -1636,7 +1786,7 @@ static void __fastcall InputDetour(void* ctx, float dt, void* p3) {
     PickupTick(p3);
     AirControlTick(dt);
     AirMomentumTick(dt);
-    LandRunTick();
+    LandRunTick(p3);
     if (kDiag) { PhysProbeTick(); EnemyProbeTick(); HangProbeTick(static_cast<const BYTE*>(ctx), p3); }
     AirAttackTick(dt);
     if (kDiag) {  // F8 = znacznik w logu (podzial testu na kroki)
@@ -2111,7 +2261,7 @@ static void* __fastcall PlayAnimDetour(void* ctx, void* out, int a3, int a4, cha
         if (PickupOnPlayAnim(ctx, out, a3, a4, a5, a6, &ret)) return ret;
     }
     if (ctx == g_playerAnimCtx || ctx == g_rollCtx) HangRepairOnPlayAnim(a3, a4);
-    LandRunOnPlayAnim(ctx, a3, a4);
+    bool keepLanding = LandRunOnPlayAnim(ctx, a3, a4);
     if (kDiag && a3 >= 0) LogFirstUse(a3, a4);
     if (kDiag) { EnemyProbeOnPlayAnim(ctx, a3, a4); }
     BossPhasesOnPlayAnim(ctx, a3, a4);
@@ -2125,6 +2275,7 @@ static void* __fastcall PlayAnimDetour(void* ctx, void* out, int a3, int a4, cha
     AttackSpeedOnPlayAnim(a3, a4);
     if (kDiag && g_lockSprintFreeOn && a4 == 8 && (g_lsState != kLsIdle || (g_lsIdleAt && GetTickCount() - g_lsIdleAt < 1500)))
         Log("[%7lu ms] lock-on sprint: locomotion clip %d (%s)", GetTickCount() - g_t0, a3, LsName(g_lsState));
+    LsLogTurnClip(ctx, a3, a4);
     // Pomiar spadania/ladowania: skok 900-999 i podejrzane spadanie/ladowanie DSR 1500-1699, kazda warstwa.
     if (kDiag && ((a3 >= 900 && a3 < 1000) || (a3 >= 1500 && a3 < 1700)))
         Log("[%7lu ms] SPADEK anim %d warstwa %d", GetTickCount() - g_t0, a3, a4);
@@ -2168,6 +2319,17 @@ static void* __fastcall PlayAnimDetour(void* ctx, void* out, int a3, int a4, cha
     }
     if (a4 == 7 && (a3 == 900 || a3 == 901 || a3 == 902)) { g_momCtx = ctx; g_momA6 = a6; }
     AirControlOnPlayAnim(a3, a4);
+    if (keepLanding && a3 == -1 && out) {
+        // The game's end of layer 7/23 right at the landing is not passed on (LandRunOnPlayAnim). The caller gets the
+        // handle the game would return for it: FUN_14037a040 -> FUN_140439c90 write {anim, layer} and return `out`
+        // (the ESD keeps it at ActionCtrl+0x80), the same as after the game's own end of the jump clip in the air.
+        __try {
+            auto h = static_cast<int*>(out);
+            h[0] = a3;
+            h[1] = a4;
+            return out;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
     void* ret = g_origPlayAnim(ctx, out, a3, a4, a5, a6, a7);
     AirAttackAfterPlayAnim(a3, a4);
     DrinkStageAfterPlayAnim(ctx, a3, a4);
@@ -3147,7 +3309,7 @@ constexpr float kLandRunMinGroundSpeed = 2.8f;  // m/s before the jump (DSR walk
 constexpr float kLandRunMinStick = 0.5f;
 constexpr DWORD kLandRunGameLandMs = 150;       // the game's landing animation this close to touchdown: keep it
 constexpr DWORD kLandRunReplayMs = 200;         // the game's -1 on layer 7 this early: start ours once more
-constexpr DWORD kLandRunReportMs = 600;         // diag: speed after the hand-over
+constexpr DWORD kLandRunReportMs = 800;         // diag: speed after the hand-over (covers the sprint floor window)
 static int g_lrAnim = 0;                         // 904 / 905 while our landing plays
 static DWORD g_lrAt = 0, g_lrHoldMs = 0;
 static float g_lrStartT = 0.f;
@@ -3189,6 +3351,101 @@ static float StickMag() {
     return m > 1.f ? 1.f : m;
 }
 
+// Sprint key for the landing (player test 2026-11-16, keyboard after the pad stopped working: every sprint jump landed
+// into a run and the sprint built up again). The learned roll key (g_rollKey) stays on the last device until three
+// rolls teach it again - in the log it was the pad button 0x10D for 340 s while the player sprinted on 0x06. The game's
+// own state works for any device: the hold timer of the roll / sprint key (input ctx +0x260, s, 0 = up) and the sprint
+// flag (+0x1E4). Any of the three counts.
+struct SprintKeyState { bool learned, flag; float hold; bool Any() const { return learned || flag || hold > 0.f; } };
+
+static SprintKeyState SprintKeyNow() {
+    SprintKeyState s{g_rollKey > 0 && g_keyDown[g_rollKey], false, 0.f};
+    if (BYTE* in = g_inputCtx) {
+        __try {
+            s.hold = *reinterpret_cast<const float*>(in + 0x260);
+            s.flag = in[0x1E4] == 1;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    return s;
+}
+
+// Sprint ramp of the locomotion controller ((ChrCtrl+0x1A8)+0x1B8, s; the game sprints only above 0.3, full 0.4). It is
+// 0 at every touchdown; while the sprint landing plays with the key held the DLL keeps it full, so the game's own
+// locomotion under the landing clip is already sprinting at the hand-over (log 16.11 ~23:00: 0.00 -> 0.40, still 0.40
+// at the hand-over). Only the ramp: ChrCtrl+0x1B0 is the movement switch and is never written (v3.6, 16.11).
+constexpr float kSprintRampFull = 0.4f;
+static BYTE* g_lrP3 = nullptr;  // ChrCtrl from the input handler (LandRunTick)
+
+// Speed bridge after the hand-over ([Jump] LandDropBridge; player tests 16.11 ~23:00 / ~23:15 and their logs). The
+// landing clip keeps driving the character after the DLL hands over (the -1 request with a blend does not stop it) and,
+// where it ends, the speed drops for 2 physics steps: sprint 5.5 -> 2.42 m/s ~1.05 s after the touchdown, run
+// 4.15 -> 1.20 (same frame-by-frame curve on every landing). The first fix (a fixed 5.5 m/s floor for sprint landings)
+// removed it, but lifted the game's restart from a standstill after the character had left the ground again (1.07 ->
+// 5.5 m/s for 11 steps = a slide). The bridge only covers a sudden drop: in the physics-step hook (ChrVelDetour), a
+// horizontal speed under kLandBridgeDrop of the previous step's, with the character on the ground for at least
+// kLandBridgeGroundSteps steps, is scaled back to the previous speed in the game's own direction, for at most
+// kLandBridgeMaxSteps steps in a row. A standstill restart right after a touchdown, a stop at a wall (< 0.5 m/s) and
+// everything in the air stay the game's. Open for kLandBridgeMs after the hand-over (904 and 905) while the stick is
+// held; any game animation on layer 7 or 8 (jump, roll, attack, fall) closes it.
+// Smoothing ([Jump] LandSmoothRate, player test 16.11 ~23:30: "a minimal jerk on almost every jump"; log of 45
+// landings): when the 130 ms root hold ends, the landing clip's own speed takes over at once - run 4.60 -> 3.90 ->
+// 4.25 -> 4.54 -> 4.77 m/s within 200 ms on almost every run landing, sprint 5.2-6.0 -> 6.37 in one step when the
+// flight was slower; with the sprint released just before the touchdown the hold itself cut 6.95 -> 4.60. With the
+// rate on, the window opens at the touchdown, the hold starts from the speed in the air, and on the ground (same
+// conditions as the bridge) the horizontal speed changes by at most g_landSmoothStep per physics step, in the game's
+// own direction; the bridge still covers the sudden drops first.
+constexpr DWORD kLandBridgeMs = 900;
+constexpr float kLandBridgeDrop = 0.6f, kLandBridgeMinPrev = 3.f, kLandBridgeMinSpeed = 0.5f;
+constexpr int kLandBridgeGroundSteps = 6, kLandBridgeMaxSteps = 3;
+static const char* const kLandHandOver = "hand-over to the game's locomotion";
+static bool g_chrVelHooked = false;    // ChrVelDetour installed (InstallChrVelHook)
+static bool g_lrBridge = false;        // window open (read by ChrVelDetour)
+static DWORD g_lrBridgeAt = 0;         // hand-over time (0 = the landing still plays: no time limit yet)
+static DWORD g_lrBridgeOpenAt = 0;
+static float g_lrBridgePrev = 0.f;     // ChrVelDetour state: previous step's horizontal speed (after the bridge)
+static int g_lrBridgeGround = 0, g_lrBridgeRun = 0;
+static int g_lrBridgeHits = 0;         // diag: physics steps bridged in this window
+static float g_lrBridgeGameMin = -1.f; // diag: lowest speed the game wanted in those steps
+static int g_lrSmoothHits = 0;         // diag: physics steps limited by the smoothing
+static float g_lrSmoothMaxCut = 0.f;   // diag: largest difference between the game's speed and the smoothed one
+
+// Root hold through the same hook (see LandRunRootHold): horizontal velocity only, the vertical stays the game's.
+static bool g_lrHoldDetour = false;
+static float g_lrHoldV[2] = {0.f, 0.f};
+
+static void LandBridgeOpen(DWORD now, bool handOver) {
+    g_lrBridgeAt = handOver ? (now ? now : 1) : 0;
+    if (g_lrBridge) return;  // already open since the touchdown: only the time limit starts
+    g_lrBridgeOpenAt = now;
+    g_lrBridgeHits = g_lrBridgeRun = g_lrSmoothHits = 0;
+    g_lrBridgeGameMin = -1.f;
+    g_lrSmoothMaxCut = 0.f;
+    g_lrBridge = true;  // g_lrBridgePrev / g_lrBridgeGround run on in ChrVelDetour (also before the window)
+}
+
+static void LandBridgeEnd(const char* why) {
+    if (!g_lrBridge) return;
+    g_lrBridge = false;
+    Log("[%7lu ms] land-to-run: speed bridge off after %lu ms (%s): bridged %d physics steps, game's lowest %.2f m/s; "
+        "smoothed %d steps, largest cut %.2f m/s",
+        GetTickCount() - g_t0, GetTickCount() - g_lrBridgeOpenAt, why, g_lrBridgeHits, g_lrBridgeGameMin, g_lrSmoothHits,
+        g_lrSmoothMaxCut);
+}
+
+static float LandRunSprintRamp(bool fill) {  // returns the ramp before the write, -1 = unknown
+    float r = -1.f;
+    if (BYTE* p3 = g_lrP3) {
+        __try {
+            if (BYTE* mc = *reinterpret_cast<BYTE**>(p3 + 0x1A8)) {
+                auto ramp = reinterpret_cast<float*>(mc + 0x1B8);
+                r = *ramp;
+                if (fill && r < kSprintRampFull) *ramp = kSprintRampFull;
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    return r;
+}
+
 static void LandRunPlay(float t) {
     unsigned long long out[2] = {};
     for (int layer : {7, 23}) g_origPlayAnim(g_lrCtx, out, g_lrAnim, layer, 0, FloatBits(g_landRunBlendInSec), 0);
@@ -3198,17 +3455,31 @@ static void LandRunPlay(float t) {
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
+// Player test 16.11 ~23:15 ("a slight slide after a jump down a bit, sprint and run; a strange pull after a run jump")
+// and its log: the old hold (+0x1F3 with +0xD0, vertical -0.16 m/s) kept the character level for 130 ms, so on a
+// downward slope or stairs it floated off the ground at once; the game went into its fall (1550) for 0.2-0.5 s and,
+// after it, restarted the locomotion from a standstill (4.0 -> 1.0 m/s, back to 4.15 after 0.4 s). With the physics-step
+// hook the hold sets only the horizontal velocity after the game computed the step (ChrVelDetour), so the vertical
+// (ground following, gravity) stays the game's. Without the hook: the old way.
 static void LandRunRootHold(bool on) {
     BYTE* ph = ChrPosData();
     if (!ph) return;
     __try {
         if (!on) {
-            if (g_lrHolding) ph[0x1F3] = 0;
+            if (g_lrHolding && !g_lrHoldDetour) ph[0x1F3] = 0;
             g_lrHolding = false;
+            g_lrHoldDetour = false;
             return;
         }
         float ang = PhysF(ph, 0x4);  // facing: forward = (-sin, -cos)
         float vx = -sinf(ang) * g_lrSpeed, vz = -cosf(ang) * g_lrSpeed;
+        if (g_chrVelHooked) {
+            g_lrHoldV[0] = vx;
+            g_lrHoldV[1] = vz;
+            g_lrHoldDetour = true;
+            g_lrHolding = true;
+            return;
+        }
         ph[0x1F3] = 1;
         auto d0 = reinterpret_cast<float*>(ph + 0xD0);
         d0[0] = vx; d0[1] = -0.16f; d0[2] = vz;  // -0.16 = the controller's own vertical speed on the ground
@@ -3229,7 +3500,9 @@ static void LandRunEnd(const char* why, bool endAnim, float blend) {
         unsigned long long out[2] = {};
         for (int layer : {7, 23}) g_origPlayAnim(g_lrCtx, out, -1, layer, 0, FloatBits(blend), 0);
     }
-    Log("[%7lu ms] land-to-run: %d ended after %lu ms (%s), speed %.2f m/s", now - g_t0, g_lrAnim, now - g_lrAt, why, v);
+    Log("[%7lu ms] land-to-run: %d ended after %lu ms (%s), speed %.2f m/s, sprint ramp %.2f", now - g_t0, g_lrAnim,
+        now - g_lrAt, why, v, LandRunSprintRamp(false));
+    if (why != kLandHandOver) LandBridgeEnd(why);  // the hand-over keeps the window (time limit from now on)
     g_lrAnim = 0;
     g_lrReplay = false;
     if (kDiag && endAnim) {
@@ -3254,7 +3527,9 @@ static void LandRunOnTouchdown(const char* how) {
             g_momAnim, mag, g_jumpGroundSpeed, g_lrGameLandAt && now - g_lrGameLandAt < kLandRunGameLandMs ? g_lrGameLandAnim : 0);
         return;
     }
-    bool sprintKey = g_rollKey > 0 && g_keyDown[g_rollKey];
+    LandBridgeEnd("next landing");
+    SprintKeyState key = SprintKeyNow();
+    bool sprintKey = key.Any();
     bool dash = g_momAnim == kJumpAnimVanilla && sprintKey;
     g_lrAnim = dash ? kLandDashAnim : kLandRunAnim;
     g_lrStartT = dash ? g_landDashStartSec : g_landRunStartSec;
@@ -3272,35 +3547,67 @@ static void LandRunOnTouchdown(const char* how) {
     g_lrSpeed = v < lo ? lo : v > hi ? hi : v;
     LandRunPlay(g_lrStartT);
     g_lrHoldFrom = now;
+    if (g_landSmoothStep > 0.f && g_chrVelHooked) LandBridgeOpen(now, false);  // smoothing from the touchdown
     if (g_landRunRootHoldMs) LandRunRootHold(true);
-    Log("[%7lu ms] land-to-run: %d from %.2f s (%s; jump %d, stick %.2f, speed before the jump %.2f, now %.2f, held %.2f for %lu ms, sprint key %d)",
+    float ramp = dash ? LandRunSprintRamp(true) : LandRunSprintRamp(false);
+    Log("[%7lu ms] land-to-run: %d from %.2f s (%s; jump %d, stick %.2f, speed before the jump %.2f, now %.2f, held %.2f for %lu ms, "
+        "sprint key %d: learned %d, game hold %.2f s, game flag %d; sprint ramp %.2f%s)",
         now - g_t0, g_lrAnim, g_lrStartT, how, g_momAnim, mag, g_jumpGroundSpeed, v, g_lrSpeed, g_landRunRootHoldMs,
-        sprintKey ? 1 : 0);
+        sprintKey ? 1 : 0, key.learned ? 1 : 0, key.hold, key.flag ? 1 : 0, ramp, dash ? " -> full" : "");
 }
 
 // Game requests (PlayAnimDetour, before the call). Our own requests go straight to g_origPlayAnim and do not come here.
-static void LandRunOnPlayAnim(void* ctx, int anim, int layer) {
-    if (!g_landRunOn || !ctx || ctx != g_momCtx) return;
+// Returns true when the request must not reach the game's PlayAnim (the landing clip stays on layers 7/23).
+//
+// [Jump] LandKeepOnGameEnd (player test 16.11 ~23:55: "a clear arm jump on a jump up a ledge"; log: all 7 jumps up,
+// +0.4 to +1.3 m, touched down at 688-704 ms while the jump clip still played, and in the same frame the game ended
+// layers 7/23 (-1, the jump clip), taking our landing clip down with it; the replay one frame later blended in from the
+// game's run pose shown in that frame, not from the jump pose). Within kLandRunReplayMs of the landing start the
+// game's -1 on 7/23 is skipped: the game keeps the same state as after a landing from the flight loop, where it ends
+// the jump clip in the air and the landing clip on 7/23 is never touched. 0 = the replay as before.
+static bool LandRunOnPlayAnim(void* ctx, int anim, int layer) {
+    if (!g_landRunOn || !ctx || ctx != g_momCtx) return false;
     DWORD now = GetTickCount();
+    if (g_lrBridge && (layer == 7 || layer == 8) && anim >= 0) {
+        char why[48];
+        sprintf_s(why, "the game started %d on layer %d", anim, layer);
+        LandBridgeEnd(why);
+    }
     if (layer == 8 && anim >= 0 && anim % 10000 >= 1600 && anim % 10000 < 1800) {  // the game's own landing
         g_lrGameLandAt = now ? now : 1;
         g_lrGameLandAnim = anim;
         if (g_lrAnim && now - g_lrAt < kLandRunGameLandMs) LandRunEnd("the game started its own landing", true, 0.1f);
-        return;
+        return false;
     }
-    if (!g_lrAnim || layer != 7) return;
-    if (anim == -1 && now - g_lrAt < kLandRunReplayMs && g_lrReplays < 1) {
-        g_lrReplay = true;  // restarted in the next tick, from where it would be now
-        return;
+    if (!g_lrAnim || (layer != 7 && layer != 23)) return false;
+    if (anim == -1 && now - g_lrAt < kLandRunReplayMs) {
+        if (g_landKeepOnGameEnd) {
+            if (layer == 7)
+                Log("[%7lu ms] land-to-run: the game's end of layers 7/23 %lu ms after the start of %d skipped (the landing "
+                    "stays)", now - g_t0, now - g_lrAt, g_lrAnim);
+            return true;
+        }
+        if (layer == 7 && g_lrReplays < 1) {
+            g_lrReplay = true;  // restarted in the next tick, from where it would be now
+            return false;
+        }
     }
+    if (layer != 7) return false;
     char why[48];
     sprintf_s(why, "the game took layer 7: %d", anim);
     LandRunEnd(why, false, 0.f);
+    return false;
 }
 
-static void LandRunTick() {
+static void LandRunTick(void* p3) {
     DWORD now = GetTickCount();
+    g_lrP3 = static_cast<BYTE*>(p3);
+    if (g_lrBridge) {
+        if (g_lrBridgeAt && now - g_lrBridgeAt >= kLandBridgeMs) LandBridgeEnd("window over");
+        else if (StickMag() < 0.5f) LandBridgeEnd("stick released");
+    }
     if (g_lrAnim) {
+        if (g_lrAnim == kLandDashAnim && SprintKeyNow().Any()) LandRunSprintRamp(true);
         if (g_lrReplay) {
             g_lrReplay = false;
             ++g_lrReplays;
@@ -3317,7 +3624,10 @@ static void LandRunTick() {
         } else {
             g_lrLowTicks = 0;
         }
-        if (now - g_lrAt >= g_lrHoldMs) LandRunEnd("hand-over to the game's locomotion", true, g_landRunBlendOutSec);
+        if (now - g_lrAt >= g_lrHoldMs) {
+            LandRunEnd(kLandHandOver, true, g_landRunBlendOutSec);
+            if (g_chrVelHooked && (g_landDropBridge || g_landSmoothStep > 0.f)) LandBridgeOpen(now, true);
+        }
         return;
     }
     if (!kDiag || !g_lrHandAt) return;
@@ -4010,6 +4320,152 @@ static void __fastcall ChrPhysStepDetour(BYTE* posData, float dt) {
     }
 }
 
+// v3.2 lock-on sprint speed floor (see g_lsFloor). FUN_1402bbe40(posData, out, a3, a4), called from the physics step
+// 0x2BB150, computes the character's velocity for this step (the animation's root motion, or +0xD0 with +0x1F3) and
+// sets it on the Havok proxy (proxy+0x60); the step then moves the proxy with it and checks `out` for "moving".
+// After it returns, a horizontal speed below the floor is replaced by the stick direction times the floor.
+using ChrVelFn = float*(__fastcall*)(BYTE* posData, float* out, void* a3, void* a4);
+static ChrVelFn g_origChrVel = nullptr;
+
+static float* __fastcall ChrVelDetour(BYTE* posData, float* out, void* a3, void* a4) {
+    float* r = g_origChrVel(posData, out, a3, a4);
+    // landing into a run / sprint: root hold (horizontal only), speed bridge and smoothing (see g_lrBridge,
+    // LandRunRootHold). g_lrBridgePrev / g_lrBridgeGround are tracked on every step, also outside the window.
+    float step = g_landSmoothStep;
+    if (posData && (g_lrHoldDetour || g_landDropBridge || step > 0.f) && posData == ChrPosData()) {
+        __try {
+            auto proxy = *reinterpret_cast<BYTE**>(posData + 0x38);
+            if (reinterpret_cast<ULONG_PTR>(proxy) >= 0x10000) {
+                auto v = reinterpret_cast<float*>(proxy + 0x60);
+                bool hold = g_lrHoldDetour;
+                bool ground = posData[0x32] != 0;
+                g_lrBridgeGround = ground ? (g_lrBridgeGround < 100000 ? g_lrBridgeGround + 1 : g_lrBridgeGround) : 0;
+                float prev = g_lrBridgePrev;
+                float game = sqrtf(v[0] * v[0] + v[2] * v[2]);
+                float want = game;  // horizontal speed to set; the direction stays v's (the game's, or the hold's)
+                if (hold) {
+                    v[0] = g_lrHoldV[0];
+                    v[2] = g_lrHoldV[1];
+                    float held = sqrtf(v[0] * v[0] + v[2] * v[2]);
+                    want = held;
+                    // smoothing: the hold starts from the speed in the air and moves to its own speed step by step
+                    if (step > 0.f && g_lrBridge && prev > 0.f) want = fmaxf(prev - step, fminf(prev + step, held));
+                    game = held;  // what the speed would be without the smoothing
+                } else if (g_lrBridge && ground && g_lrBridgeGround > kLandBridgeGroundSteps && game >= kLandBridgeMinSpeed) {
+                    if (g_landDropBridge && prev >= kLandBridgeMinPrev && game < kLandBridgeDrop * prev &&
+                        g_lrBridgeRun < kLandBridgeMaxSteps) {
+                        if (g_lrBridgeGameMin < 0.f || game < g_lrBridgeGameMin) g_lrBridgeGameMin = game;
+                        ++g_lrBridgeHits;
+                        ++g_lrBridgeRun;
+                        want = prev;  // back to the previous step's speed
+                    } else {
+                        g_lrBridgeRun = 0;
+                        if (step > 0.f) want = fmaxf(prev - step, fminf(prev + step, game));
+                    }
+                } else {
+                    g_lrBridgeRun = 0;
+                }
+                float cur = sqrtf(v[0] * v[0] + v[2] * v[2]);
+                if (cur > 0.01f && fabsf(want - cur) > 1e-4f) {
+                    float k = want / cur;
+                    v[0] *= k;
+                    v[2] *= k;
+                }
+                if (hold || want != game) {
+                    if (out) { out[0] = v[0]; out[2] = v[2]; }
+                }
+                if (g_lrBridge && fabsf(want - game) > 1e-3f && !(g_lrBridgeRun && want == prev)) {
+                    ++g_lrSmoothHits;
+                    if (fabsf(want - game) > g_lrSmoothMaxCut) g_lrSmoothMaxCut = fabsf(want - game);
+                }
+                g_lrBridgePrev = sqrtf(v[0] * v[0] + v[2] * v[2]);
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    float floorV = g_lsFloor;
+    if (floorV > 0.f && posData && posData == ChrPosData()) {
+        __try {
+            auto proxy = *reinterpret_cast<BYTE**>(posData + 0x38);
+            if (posData[0x32] && reinterpret_cast<ULONG_PTR>(proxy) >= 0x10000) {
+                auto v = reinterpret_cast<float*>(proxy + 0x60);
+                float m = sqrtf(v[0] * v[0] + v[2] * v[2]);
+                if (m < floorV) {
+                    if (g_lsFloorGameMin < 0.f || m < g_lsFloorGameMin) g_lsFloorGameMin = m;
+                    ++g_lsFloorHits;
+                    v[0] = g_lsFloorDir[0] * floorV;
+                    v[2] = g_lsFloorDir[1] * floorV;
+                    if (out) { out[0] = v[0]; out[2] = v[2]; }
+                }
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    return r;
+}
+
+static void InstallChrVelHook() {
+    static const BYTE kPrologue[] = {0x40, 0x55, 0x53, 0x56, 0x57, 0x41, 0x56, 0x48, 0x8D, 0x6C, 0x24, 0xC9,
+                                     0x48, 0x81, 0xEC, 0xA0, 0x00, 0x00, 0x00};
+    auto target = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr)) + 0x2BBE40;
+    if (memcmp(target, kPrologue, sizeof(kPrologue)) != 0) {
+        Log("speed floor: unexpected prologue @0x2BBE40 (%02X %02X) - no speed floor", target[0], target[1]);
+        g_lockSprintSpeedHold = false;
+        return;
+    }
+    MH_STATUS st = MH_CreateHook(target, reinterpret_cast<void*>(&ChrVelDetour), reinterpret_cast<void**>(&g_origChrVel));
+    if (st == MH_OK) st = MH_EnableHook(target);
+    if (st != MH_OK) { g_origChrVel = nullptr; g_lockSprintSpeedHold = false; }
+    g_chrVelHooked = st == MH_OK;
+    Log("speed floor hook @0x2BBE40 (lock-on sprint %d, landing hold %d, landing bridge %d): %s", g_lockSprintSpeedHold ? 1 : 0,
+        g_landRunOn && g_landRunRootHoldMs ? 1 : 0, g_landDropBridge ? 1 : 0, MH_StatusToString(st));
+}
+
+// v3.4 lock mode setter (see g_lockSprintLockGuard). FUN_14037ac00(ChrCtrl, char free) writes ChrCtrl+0x21D (1 free
+// movement, 0 lock-on movement) and, when the value changes, clears the sprint ramp (+0x1A8 -> +0x1B8). The lock-on code
+// calls it with 0 every frame while a target is held, the lock-on event before the input handler.
+using LockModeSetFn = void(__fastcall*)(BYTE* ctrl, char freeMove);
+static LockModeSetFn g_origLockModeSet = nullptr;
+
+static void __fastcall LockModeSetDetour(BYTE* ctrl, char freeMove) {
+    if (!ctrl || ctrl != g_lsP3 || !g_lockSprintLockGuard) { g_origLockModeSet(ctrl, freeMove); return; }
+    BYTE mode = ctrl[0x21D];
+    if (freeMove == 0 && mode == 1 && !g_lsDeferLock && !g_lsDeferDone && g_lsPrevSprinting) {
+        g_lsDeferLock = true;  // lock-on during a sprint: keep the free mode (no turn clip), the tick lets it through
+        g_lsDeferCalls = 0;
+        Log("[%7lu ms] lock-on sprint: lock-on during a sprint - lock mode switch held back", GetTickCount() - g_t0);
+    }
+    if (freeMove == 0 && g_lsDeferLock) {
+        freeMove = 1;
+        ++g_lsDeferCalls;
+    }
+    // a switch during a sprint keeps the ramp (the game clears it, and sprints again only above 0.3 after ~0.3 s)
+    BYTE* mc = nullptr;
+    float ramp = -1.f;
+    if (static_cast<BYTE>(freeMove != 0) != mode && g_lsPrevSprinting) {
+        mc = *reinterpret_cast<BYTE**>(ctrl + 0x1A8);
+        if (mc) ramp = *reinterpret_cast<float*>(mc + 0x1B8);
+    }
+    g_origLockModeSet(ctrl, freeMove);
+    if (mc && ramp > 0.f) {
+        *reinterpret_cast<float*>(mc + 0x1B8) = ramp;
+        Log("[%7lu ms] lock-on sprint: mode switch %d -> %d during a sprint, ramp %.2f kept", GetTickCount() - g_t0, mode,
+            freeMove != 0 ? 1 : 0, ramp);
+    }
+}
+
+static void InstallLockModeSetHook() {
+    static const BYTE kPrologue[] = {0x3A, 0x91, 0x1D, 0x02, 0x00, 0x00, 0x74, 0x16, 0x48, 0x8B, 0x81, 0xA8, 0x01, 0x00, 0x00};
+    auto target = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr)) + 0x37AC00;
+    if (memcmp(target, kPrologue, sizeof(kPrologue)) != 0) {
+        Log("lock-on sprint: unexpected prologue @0x37AC00 (%02X %02X) - no lock mode hook", target[0], target[1]);
+        g_lockSprintLockGuard = false;
+        return;
+    }
+    MH_STATUS st = MH_CreateHook(target, reinterpret_cast<void*>(&LockModeSetDetour), reinterpret_cast<void**>(&g_origLockModeSet));
+    if (st == MH_OK) st = MH_EnableHook(target);
+    if (st != MH_OK) { g_origLockModeSet = nullptr; g_lockSprintLockGuard = false; }
+    Log("lock-on sprint: lock mode setter hook @0x37AC00: %s", MH_StatusToString(st));
+}
+
 static void InstallChrPhysStepHook() {
     static const BYTE kPrologue[] = {0x40, 0x57, 0x48, 0x81, 0xEC, 0x80, 0x00, 0x00, 0x00, 0x0F, 0x29, 0x7C, 0x24, 0x50};
     auto target = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr)) + 0x2BB150;
@@ -4070,6 +4526,11 @@ static DWORD WINAPI InitThread(LPVOID) {
     InstallPlayAnimProbe();
     InstallRollPressHook();
     InstallChrPhysStepHook();
+    if (!g_lockSprintFreeOn) g_lockSprintSpeedHold = false;
+    if (!g_landRunOn) g_landDropBridge = false;
+    if (g_lockSprintSpeedHold || g_landDropBridge || (g_landRunOn && g_landRunRootHoldMs)) InstallChrVelHook();
+    if (g_lockSprintFreeOn && g_lockSprintLockGuard) InstallLockModeSetHook();
+    else g_lockSprintLockGuard = false;
     if (kDevDiag) InstallSubmitProbes();
     InstallDrinkSlowWalk();
     return 0;
