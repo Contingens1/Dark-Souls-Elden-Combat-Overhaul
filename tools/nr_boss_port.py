@@ -9,7 +9,7 @@ Master convention (Master carries the pelvis motion or not) is detected from a D
 
 Input:  work/boss_port/nr_<nr>/anibnd (tools/nr_inventory.py --unpack), work/boss_port/dsr_<dsr>/anibnd
         (tools/boss_anim_inventory.py dsr).
-Output: work/boss_port/nr_ported/<dsr>/a00_XXXX.hkx, analysis/nr_port_<dsr>.txt and, with --install,
+Output: work/boss_port/nr_ported/<dsr>/a00_XXXX.hkx (13xxx: a01_3xxx.hkx), analysis/nr_port_<dsr>.txt and, with --install,
         dist/mods/bossy_nightreign/files_<dsr>/chr/<dsr>.anibnd.dcx (TAE events of each replaced animation
         moved with anchors taken from the hit windows of both games). Nothing is written to a game directory.
 """
@@ -46,6 +46,13 @@ def norm(n: str) -> str:
 
 def find_ci(folder: Path, name: str) -> Path:
     return next(p for p in folder.iterdir() if p.name.lower() == name.lower())
+
+
+def dsr_hkx(anim_id: int) -> str:
+    """DSR clip name of an animation ID: 3000 -> a00_3000.hkx, 13000 -> a01_3000.hkx. The 13xxx variant set is
+    what a SpEffect with animIdOffset 10000 plays instead of 3xxx (game files: c2540 entry 13000 = a01_3000.hkx,
+    TAE animation 13000 named a01_3000.hkxwin; c2360 13008 = a01_3008.hkx)."""
+    return f"a{anim_id // 10000:02d}_{anim_id % 10000:04d}.hkx"
 
 
 def load_anim(cls, path, comp=None):
@@ -122,7 +129,7 @@ def port_one(ctx, nr_id: int, dsr_id: int, out: Path) -> dict:
     dRa = ctx.get("dRa") or dRr  # rest rotations the NR motion is applied to (--align-rest)
     ename = f"a{nr_id // 1000000:03d}_{nr_id % 1000000:06d}.hkx"  # 1003028 = a001_003028 (variant set)
     ec, eint = load_anim(e.AnimationHKX, ctx["ED"] / ename, ctx["comp_for"](ename))
-    dc, dint = load_anim(d.AnimationHKX, find_ci(ctx["DD"], f"a00_{dsr_id:04d}.hkx"))
+    dc, dint = load_anim(d.AnimationHKX, find_ci(ctx["DD"], dsr_hkx(dsr_id)))
     eT, eQ = frames_to_arrays(eint.interleaved_data, list(ec.hkx_binding.transformTrackToBoneIndices),
                               len(epar), eref)
     F = eT.shape[0]
@@ -324,20 +331,20 @@ def install(args, results: dict) -> None:
         new_id = res.get("new_id", dsr_id)
         data = to_memory(net_bytes(res["path"].read_bytes()))
         if new_id == dsr_id:
-            files[f"a00_{dsr_id:04d}.hkx"].Bytes = data
+            files[dsr_hkx(dsr_id)].Bytes = data
         else:
             # New attack under its own number: new HKX entry (binder ID = animation ID) and a new TAE
-            # animation whose events start as a copy of the template attack.
-            tpl_entry = files[f"a00_{dsr_id:04d}.hkx"]
-            name = str(tpl_entry.Name).replace(f"a00_{dsr_id:04d}", f"a00_{new_id:04d}")
+            # animation whose events start as a copy of the template attack. 13xxx = variant set (dsr_hkx).
+            tpl_entry = files[dsr_hkx(dsr_id)]
+            name = str(tpl_entry.Name).replace(dsr_hkx(dsr_id)[:-4], dsr_hkx(new_id)[:-4])
             entry = sf.BinderFile(tpl_entry.Flags, new_id, name, data)
             pos = next((i for i, f in enumerate(bnd.Files) if int(f.ID) > new_id), bnd.Files.Count)
             bnd.Files.Insert(pos, entry)
-            files[f"a00_{new_id:04d}.hkx"] = entry
+            files[dsr_hkx(new_id)] = entry
             if any(int(a.ID) == new_id for a in tae.Animations):
                 raise RuntimeError(f"TAE already has animation {new_id}")
             src_anim = next(a for a in tae.Animations if int(a.ID) == dsr_id)
-            na = sf.TAE.Animation(new_id, False, 0, -1, f"a00_{new_id:04d}.hkxwin")
+            na = sf.TAE.Animation(new_id, False, 0, -1, dsr_hkx(new_id)[:-4] + ".hkxwin")
             for ev in src_anim.Events:
                 na.Events.Add(clone(ev, float(ev.StartTime), float(ev.EndTime)))
             pos = next((i for i, a in enumerate(tae.Animations) if int(a.ID) > new_id), tae.Animations.Count)
@@ -588,7 +595,7 @@ def main(argv=None) -> int:
     say(f"NR-only IDs in range: {sorted(i for i in e_ids - d_ids if args.lo <= i <= args.hi)}")
 
     # Master convention from the first template: does the root track move while Pelvis stays put?
-    tc, ti = load_anim(d.AnimationHKX, find_ci(DD, f"a00_{pairs[0][1]:04d}.hkx"))
+    tc, ti = load_anim(d.AnimationHKX, find_ci(DD, dsr_hkx(pairs[0][1])))
     tT, _ = frames_to_arrays(ti.interleaved_data, list(tc.hkx_binding.transformTrackToBoneIndices), len(dnames), dref)
     root = dpar.index(-1)
     root_move = float(np.abs(tT[:, root] - tT[0, root]).max())
@@ -621,12 +628,12 @@ def main(argv=None) -> int:
     for pair in pairs:
         nr_id, dsr_id = pair[0], pair[1]
         new_id = pair[2] if len(pair) > 2 else dsr_id  # NR:TEMPLATE:NEW = add as a new animation number
-        out = BP / "nr_ported" / f"{args.dsr}{args.tag}" / f"a00_{new_id:04d}.hkx"
+        out = BP / "nr_ported" / f"{args.dsr}{args.tag}" / dsr_hkx(new_id)
         try:
             if args.reuse and out.exists() and nr_id not in args.redo:  # ported earlier: lengths for the install
                 ename = f"a{nr_id // 1000000:03d}_{nr_id % 1000000:06d}.hkx"
                 ec, _ = load_anim(e.AnimationHKX, ED / ename, comp_for(ename))
-                dc, _ = load_anim(d.AnimationHKX, find_ci(DD, f"a00_{dsr_id:04d}.hkx"))
+                dc, _ = load_anim(d.AnimationHKX, find_ci(DD, dsr_hkx(dsr_id)))
                 results[(nr_id, dsr_id)] = {"nr_dur": float(ec.hkx_animation.duration), "new_id": new_id,
                                             "dsr_dur": float(dc.hkx_animation.duration), "path": out}
                 say(f"{dsr_id:5d} {nr_id:6d} reused {out.name}")

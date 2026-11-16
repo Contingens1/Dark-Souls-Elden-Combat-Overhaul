@@ -17,10 +17,27 @@ Stan: 2026-11-16 wieczór, nocna DLL = `main` (ze sprintem przy namierzeniu v3.1
    - skok z marszu (wolno, gałka lekko wychylona);
    - zaraz po lądowaniu: puszczenie gałki, unik, atak;
    - skok z bronią oburącz i z uniesioną tarczą.
-2. **Gwyn** (Kiln of the First Flame), ruchy z Soul of Cinder z DS3. Test 15.11: miecz, płaszcz i ciosy wyglądają dobrze. Zostało:
-   - chwyt i rzut działają jak wcześniej;
-   - (przy okazji) włosy i broda.
-   - Różnic względem DS1 prawie nie widać i tak ma być: druga faza SoC to te same ataki Gwyna w odświeżonych animacjach. Log walki potwierdza nowe AI (kombinacja 3000 → 3011 z SoC). Prawdziwie nowe ruchy to faza 2 (decyzja niżej).
+2. **Gwyn: dwie fazy** (Kiln of the First Flame, nowe 15.11 w nocy). Faza 1 to Gwyn z DS1 (stare ruchy i stare AI), faza 2 to ruchy i AI z Soul of Cinder (te z testu 15.11).
+   - Test 15.11 w nocy, pierwsza próba: faza 1 w porządku. Przy 0 HP Gwyn został na 1 HP, ale przejście się nie zaczęło (AI go nie zleciło), a po 20 s zginął. Poprawione.
+   - Druga próba: **przejście działa** (klęk, wbicie miecza, fala, pełny pasek HP). Fala z bliska jeszcze nie sprawdzona.
+   - Z logu (16.11): w fazie 2 grają ruchy SoC (inne czasy i zasięgi niż w fazie 1, takie same jak w teście paczki SoC). Na oko różnią się mało; wyraźna różnica przyjdzie z nowymi atakami.
+   - Poprawione 16.11: przejście czekało 0–11 s, bo zwykła reakcja z fazy 1 (np. na łyk Estusa) wypychała je z kolejki. **Teraz ma ruszyć zaraz po ciosie, który właśnie trwa (1–2 s).**
+   - **Przejście przy 0 HP:** Gwyn nie ginie. Cofa się i opada na kolano z lewą ręką na ziemi, wstaje, unosi miecz oburącz i wbija go w ziemię. W chwili wbicia: wybuch ognia przy mieczu, fala światła wokół niego (jak cud Wrath of the Gods, ok. 4 m), a pasek HP wraca do pełna w około sekundę.
+   - Sprawdzić przejście:
+     - startuje raz, przy 0 HP;
+     - w trakcie boss nie traci HP i nie da się go przerwać;
+     - fala trafia tylko w zasięgu widocznego efektu, a przewrót we właściwej chwili albo odejście ją omija (trafienie powala).
+   - **Znak fazy 2 (nowe 16.11, decyzja gracza „dodaj znak”):** od wbicia miecza do końca walki:
+     - ogień na całym ostrzu (dotąd Gwyn ma płomień tylko przy rękojeści; dochodzi ten sam płomień w połowie ostrza i na czubku);
+     - czerwona poświata z piersi, jak z Red Tearstone Ring.
+     - Ocenić każdą część osobno: widać, ładne, za mało, za dużo, zostawić czy usunąć. Jeśli którejś nie widać, też napisać.
+   - Sprawdzić fazę 2:
+     - reakcje na trafienie i śmierć wyglądają normalnie;
+     - chwyt i rzut działają;
+     - (przy okazji) włosy i broda.
+   - Długość walki: każdy pasek ma teraz 900 HP zamiast jednego 1550. Czy razem nie wychodzi za długo albo za krótko?
+   - Nowych ataków SoC (piorun, włócznia, burza, kombinacja z wybuchem) jeszcze nie ma: to kolejne etapy.
+   - F8 po walce.
 3. **Centipede Demon: test rozstrzygający** (Demon Ruins), z `launch_er_engine.bat`, **bez paczek bossów**.
    - Czy w oryginale da się trafić wyciągniętą mackę, zwłaszcza jej koniec z paszczą.
    - Od tego zależy, czy problem jest w naszych zmianach, czy w samej grze.
@@ -36,15 +53,14 @@ Stan: 2026-11-16 wieczór, nocna DLL = `main` (ze sprintem przy namierzeniu v3.1
 - **Stray Demon ma tylko 2 ataki:** paczka zmienia tylko animacje, AI jest z gry. Nowe ataki wymagają pracy nad AI (na później).
 - **Lądowanie po ataku z wyskoku: przeskok pozy** (biodra i nogi w dół, przy katanie też ręce), poza R2 młota. Próba z 15.11 w nocy (szybsze opadanie, żeby ziemia przyszła przed uderzeniem) wyłączona: łuk wyglądał na ściągnięty w dół. Druga próba (wolniejszy zamach w powietrzu) też wyłączona: lądowanie wypadało we właściwej chwili, a przeskok przy R2 katany został i doszło mignięcie na początku zamachu. Temat odłożony.
 - Broń wchodzi w teren przy R2 ze sprintu i z wyskoku (koszt tego, że się nie odbija; w ER tak samo).
-- Sprint przy namierzeniu: postać biegnie zamiast sprintować (czeka na poprawkę).
 - Przedmiot, którego masz już 99, zostaje na ziemi bez komunikatu (tak działa gra).
 
 ## Decyzje bez gry
 
 - **Gwyn, faza 2** (gracz 15.11: „jak najbardziej za”): nowe ataki SoC (piorun w ziemię, włócznia pioruna, burza piorunów, kombinacja z wybuchem).
   - Decyzje 15.11: faza 1 = Gwyn z DS1, faza 2 = cały SoC, przejście przy 0 HP z odnowieniem paska.
-  - Etap 0 zrobiony bez gry, **nic do testowania**. Launcher bierze teraz parametry bossów ze wspólnego pliku `files_bosses_param` (dziś identyczny z plikiem Artoriasa, więc Artorias działa jak dotąd).
-  - Etap 1 po zakończeniu pracy nad skokiem.
+  - Etap 0 zrobiony bez gry. Launcher bierze parametry bossów ze wspólnego pliku `files_bosses_param`.
+  - Etap 1 (dwie fazy, przejście, bez nowych ataków) jest w teście: punkt 2.
   - Otwarte pytania:
     - kolor piorunów (złoty Sunlight Spear czy niebieski);
     - rozmiar wybuchów (11,5 m jak w DS3 czy dopasowany do efektu);

@@ -8,8 +8,9 @@ This tool writes one file with all rows; its folder goes first in config_test_al
 
 Sources (each writes its rows into the open GameParam binder; order = --only order):
   artorias  tools/artorias_phase2.apply_params   (--artorias-tag picks the options of that package, see below)
-  gwyn      tools/gwyn_phase2.apply_params        (stage 1 of docs/nieoficjalne/PLAN_GWYN_FAZA2.md; skipped while the
-                                                   module does not exist)
+  gwyn      tools/gwyn_phase2.apply_params        (phase 2 of Gwyn, docs/PLAN_PROJEKTU.md §6c; the lower HP of the
+                                                   two-bar fight only while config_test_all.toml loads
+                                                   files_c5370_p2, see --gwyn-hp)
 A row that two sources add or change stops the build (collision). Rows are compared field by field (Smithbox DS1R
 paramdefs) before and after each source; boss_rows.txt lists what each source added or changed.
 
@@ -46,6 +47,8 @@ DEF_OF = {"npcparam": "NpcParam", "speffectparam": "SpEffect", "speffectvfxparam
           "behaviorparam": "BehaviorParam", "throwparam": "ThrowParam", "npcthinkparam": "NpcThinkParam"}
 # options of the Artorias packages (artorias_phase2.py main(): --tag, --hp 880, --anim-offset 0, --easy)
 ARTORIAS_TAGS = {"_v2": {"easy": False}, "_v2_test": {"easy": False}}
+LAUNCHER_TOML = ROOT / "dist" / "mods" / "bossy_nightreign" / "config_test_all.toml"
+GWYN_P2 = "files_c5370_p2"
 
 
 def snapshot(bnd) -> dict[str, bytes]:
@@ -91,13 +94,30 @@ def src_artorias(sf, bnd, args) -> bool:
     return True
 
 
+def launcher_loads(folder: str) -> bool:
+    """Does config_test_all.toml load the mod folder `folder` (an enabled entry of `mods`; comments ignored)?"""
+    import tomllib
+    cfg = tomllib.loads(LAUNCHER_TOML.read_text(encoding="utf-8"))
+    mods = cfg.get("extension", {}).get("mod_loader", {}).get("mods", []) or cfg.get("mods", [])
+    return any(m.get("enabled", True) and str(m.get("path", "")).replace("\\", "/").rstrip("/").endswith(folder)
+               for m in mods)
+
+
 def src_gwyn(sf, bnd, args) -> bool:
     try:
         import gwyn_phase2
     except ModuleNotFoundError:
         print("gwyn: tools/gwyn_phase2.py does not exist yet (stage 1 of PLAN_GWYN_FAZA2) - skipped")
         return False
-    gwyn_phase2.apply_params(sf, bnd)
+    # The lower HP belongs to the two-bar fight: only when the launcher loads the phase-2 package (otherwise the
+    # one-bar SoC package would just get a weaker Gwyn). The other rows are unused without that package.
+    hp = args.gwyn_hp
+    if hp is None:
+        on = launcher_loads(GWYN_P2)
+        hp = gwyn_phase2.HP if on else None
+        print(f"gwyn: {LAUNCHER_TOML.name} {'loads' if on else 'does not load'} {GWYN_P2} -> NpcParam hp "
+              f"{hp if on else 'unchanged'}")
+    gwyn_phase2.apply_params(sf, bnd, hp if hp and hp > 0 else None)
     return True
 
 
@@ -113,6 +133,9 @@ def main(argv=None) -> int:
     ap.add_argument("--artorias-anim-offset", type=int, default=0)
     ap.add_argument("--artorias-easy", type=lambda s: s.lower() in ("1", "true", "yes"), default=None,
                     help="override the package's --easy (1/0)")
+    ap.add_argument("--gwyn-hp", type=int, default=None,
+                    help="NpcParam 537000 hp; default: gwyn_phase2.HP when config_test_all.toml loads "
+                         "files_c5370_p2 (two bars), else unchanged; 0 = unchanged")
     ap.add_argument("--check", type=Path, help="reference parambnd: list params / rows that differ")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)

@@ -675,25 +675,50 @@ static void OmniRollOnPlayAnim(void* ctx, int anim, int layer, int a6) {
 }
 
 static bool g_freeStaminaOn = true;  // [Stamina] FreeOutOfCombat (see FreeStaminaTick)
-static bool g_artOn = false;         // [Bosses] ArtoriasPhase2, resolved (see ArtoriasPhaseTick)
 static bool g_hangRepairOn = true;   // [Fixes] HangRepair (see HangRepairTick)
 static bool g_hangRepairV2On = false;  // [Fixes] HangRepairV2 (test): silent move-flag drops, faster repair
 static bool g_itemHitCancelOn = true;  // [Items] HitCancelsItem (see ItemUpperOnPlayAnim)
 static bool g_pickupMoveOn = false;    // [Items] PickupWhileMoving (see PickupOnPlayAnim)
 static int g_drinkStageBlendMs = -1;   // [Items] DrinkStageBlend (see DrinkStageAfterPlayAnim), -1 = the game's
 
-// [Bosses] ArtoriasPhase2: 1 on, 0 off, 2 auto (default) = on only when this run loads the Artorias boss files:
-// the release layout (bin\er_engine.dll next to files\chr\c4100.anibnd.dcx, the boss files ship inside the main
-// package since 1.3) or a Mod Engine 2 config (env MODENGINE_CONFIG, set by modengine2_launcher) that loads the
-// dev boss package files_c4100_v2. The plain mod must never touch the vanilla Artorias: without the package's AI
-// he would stay at 0 HP with no transition (the 20 s fail-safe in ArtoriasPhaseTick would end it).
-static bool ResolveArtoriasPhase2(int cfg, char* why, size_t whyLen) {
+// [Bosses] two-phase bosses (see BossPhasesTick): phase 1 ends at HP 0, the DLL keeps the boss alive until the
+// transition animations of its package have played.
+struct BossPhase {
+    const char* name;      // log tag
+    const char* iniKey;    // [Bosses] key: 1 on, 0 off, 2 auto (default, see ResolveBossPhase)
+    const char* relFile;   // auto: this file next to the DLL = release layout with the boss (nullptr: not released)
+    const char* folder;    // auto: a Mod Engine 2 mods entry with this folder (a prefix: files_c4100_v2 = _v2_test too)
+    int thinkId;           // NpcThinkParam ID of the boss
+    int anims[2];          // transition animations (0 = unused); the first other animation after them ends it
+    bool on;
+    BYTE* chr;
+    int phase;             // 0 phase 1, 1 transition playing, 2 phase 2 (NoDead off)
+    DWORD lowSince, scanAt, notFoundLogAt, hpLogAt;
+    int lastTrans;         // last transition animation started (phase 1)
+    DWORD transSince;      // phase 1 started at (fail-safe kBossTransitionMaxMs)
+};
+static BossPhase g_bosses[] = {
+    // docs/PLAN_PROJEKTU.md §6a: transition 3016 (tools/artorias_phase2.py, tools/make_artorias_ai.py)
+    {"artorias", "ArtoriasPhase2", "..\\files\\chr\\c4100.anibnd.dcx", "files_c4100_v2", 410000, {3016, 0}},
+    // docs/PLAN_PROJEKTU.md §6c: kneel 3028 -> sword into the ground 3029 (tools/gwyn_phase2.py, make_gwyn_ai.py --p2)
+    {"gwyn", "GwynPhase2", nullptr, "files_c5370_p2", 537000, {3028, 3029}},
+};
+
+// 1 on, 0 off, 2 auto = on only when this run loads the boss package: the release layout (bin\er_engine.dll next to
+// files\chr\<relFile>, the Artorias files ship inside the main package since 1.3) or a Mod Engine 2 config (env
+// MODENGINE_CONFIG, set by modengine2_launcher) with a mods entry for the dev package folder. The plain mod must
+// never touch a vanilla boss: without the package's AI he would stay at 0 HP with no transition (the 20 s fail-safe
+// in BossPhasesTick would end it). Config lines: comments (#) and entries with enabled = false do not count (the
+// first version matched the folder name anywhere, comments included).
+static bool ResolveBossPhase(const BossPhase& b, int cfg, char* why, size_t whyLen) {
     if (cfg == 0 || cfg == 1) { sprintf_s(why, whyLen, "ini %d", cfg); return cfg == 1; }
-    char rel[MAX_PATH + 64];
-    _snprintf_s(rel, _TRUNCATE, "%s..\\files\\chr\\c4100.anibnd.dcx", g_dir);
-    if (GetFileAttributesA(rel) != INVALID_FILE_ATTRIBUTES) {
-        _snprintf_s(why, whyLen, _TRUNCATE, "auto: release boss files present (%s)", rel);
-        return true;
+    if (b.relFile) {
+        char rel[MAX_PATH + 64];
+        _snprintf_s(rel, _TRUNCATE, "%s%s", g_dir, b.relFile);
+        if (GetFileAttributesA(rel) != INVALID_FILE_ATTRIBUTES) {
+            _snprintf_s(why, whyLen, _TRUNCATE, "auto: release boss files present (%s)", rel);
+            return true;
+        }
     }
     char path[MAX_PATH] = {};
     DWORD n = GetEnvironmentVariableA("MODENGINE_CONFIG", path, MAX_PATH);
@@ -704,8 +729,17 @@ static bool ResolveArtoriasPhase2(int cfg, char* why, size_t whyLen) {
     size_t got = fread(buf, 1, sizeof(buf) - 1, f);
     fclose(f);
     buf[got] = 0;
-    bool on = strstr(buf, "files_c4100_v2") != nullptr;
-    sprintf_s(why, whyLen, "auto: %s %s files_c4100_v2", path, on ? "loads" : "does not load");
+    bool on = false;
+    for (char* line = buf; line && *line && !on;) {
+        char* nl = strchr(line, '\n');
+        if (nl) *nl = 0;
+        const char* p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        on = *p != '#' && strstr(p, b.folder) && !strstr(p, "enabled = false") && !strstr(p, "enabled=false");
+        if (nl) *nl = '\n';
+        line = nl ? nl + 1 : nullptr;
+    }
+    _snprintf_s(why, whyLen, _TRUNCATE, "auto: %s %s %s", path, on ? "loads" : "does not load", b.folder);
     return on;
 }
 static DWORD g_itemBrokenAt = 0;       // item use broken by another animation (see DrinkActive)
@@ -761,11 +795,13 @@ static void LoadConfigIni() {
         g_landRunStartSec, g_landDashStartSec, g_landRunHoldMs, g_landDashHoldMs, g_landRunBlendInSec, g_landRunBlendOutSec);
     Log("config: AttackFaceTarget=%d LockOnSprintFree=%d", g_attackFaceOn ? 1 : 0, g_lockSprintFreeOn ? 1 : 0);
     Log("config: HangRepair=%d HangRepairV2=%d", g_hangRepairOn ? 1 : 0, g_hangRepairV2On ? 1 : 0);
-    char artWhy[MAX_PATH + 64];
-    g_artOn = ResolveArtoriasPhase2(GetPrivateProfileIntA("Bosses", "ArtoriasPhase2", 2, iniPath), artWhy, sizeof(artWhy));
     Log("config: OmniRoll=%d RollBuffer=%d LockOnSprint=%d FreeOutOfCombat=%d HitCancelsItem=%d (%s)", g_omniRollOn ? 1 : 0,
         g_rollBufferOn ? 1 : 0, g_lockSprintOn ? 1 : 0, g_freeStaminaOn ? 1 : 0, g_itemHitCancelOn ? 1 : 0, iniPath);
-    Log("config: ArtoriasPhase2=%d (%s)", g_artOn ? 1 : 0, artWhy);
+    for (auto& b : g_bosses) {
+        char why[MAX_PATH + 96];
+        b.on = ResolveBossPhase(b, GetPrivateProfileIntA("Bosses", b.iniKey, 2, iniPath), why, sizeof(why));
+        Log("config: %s=%d (%s)", b.iniKey, b.on ? 1 : 0, why);
+    }
 }
 
 static bool IsMoveKey(int c) { return c == 'W' || c == 'A' || c == 'S' || c == 'D'; }
@@ -1289,20 +1325,16 @@ static void LockSprintTick(BYTE* ctx, float dt, void* p3) {
     lastZ = z;
 }
 
-// --- Artorias phase 2 (boss test package, docs/PLAN_PROJEKTU.md §6a) ----------------------------
-// Phase 1 of the Nightreign-style Artorias ends at HP 0: the DLL keeps him alive with ChrFlags2 NoDead (DSR-Gadget
-// ChrData1+0x514 bit 0x20; +0x10 in this exe = chr+0x524, the word of the stamina bit) until his transition 3016
-// has played. The rest is data: the AI starts 3016 at HP <= 1 % (tools/make_artorias_ai.py), 3016 makes him
-// take no damage and refills his HP, its burst gives SpEffect 5513 = phase 2 (tools/artorias_phase2.py).
-// Artorias = the enemy with NpcThinkParam ID 410000. Lua binding GetNpcThinkParamID (FUN_1405b66b0) returns
+// --- Two-phase bosses (boss test packages, docs/PLAN_PROJEKTU.md §6a Artorias, §6c Gwyn) -----------------
+// Phase 1 ends at HP 0: the DLL keeps the boss alive with ChrFlags2 NoDead (DSR-Gadget ChrData1+0x514 bit 0x20;
+// +0x10 in this exe = chr+0x524, the word of the stamina bit) until his transition animations (g_bosses) have
+// played. The rest is data: the AI starts the transition at HP <= 1 %, the transition makes him take no damage and
+// refills his HP, and gives the phase-2 SpEffect the AI reads (Artorias 3016 -> 5513, Gwyn 3028 + 3029 -> 53701).
+// A boss = the enemy with his NpcThinkParam ID. Lua binding GetNpcThinkParamID (FUN_1405b66b0) returns
 // *(int*)(ai + 0xB8) of the object it wraps; both AI objects of AiStateOfEnemy are tried (log says which).
-constexpr int kArtoriasThinkId = 410000;
-constexpr int kArtoriasTransitionAnim = 3016;
-constexpr DWORD kArtoriasStuckMs = 20000;  // fail-safe: at <= 1 % HP this long without 3016 -> NoDead off
+constexpr DWORD kBossStuckMs = 20000;      // fail-safe: at <= 1 % HP this long without the transition -> NoDead off
+constexpr DWORD kBossTransitionMaxMs = 30000;  // fail-safe: transition (phase 1) this long -> NoDead off (Gwyn ~12 s)
 constexpr DWORD kChrNoDead = 0x20;
-static BYTE* g_artChr = nullptr;
-static int g_artPhase = 0;                 // 0 phase 1, 1 transition playing, 2 phase 2 (NoDead off)
-static DWORD g_artLowSince = 0;
 
 struct ThinkIdScan { int scanned; int sample[4][2]; int samples; };
 
@@ -1347,103 +1379,144 @@ static BYTE* FindEnemyByThinkId(int id, int* which, ThinkIdScan* sc) {
     return nullptr;
 }
 
-static void ArtoriasReset(const char* why) {
-    if (g_artChr || g_artPhase) Log("[%7lu ms] artorias: reset (%s), phase %d -> 0", GetTickCount() - g_t0, why, g_artPhase);
-    g_artChr = nullptr;
-    g_artPhase = 0;
-    g_artLowSince = 0;
+static void BossReset(BossPhase& b, const char* why) {
+    if (b.chr || b.phase) Log("[%7lu ms] %s: reset (%s), phase %d -> 0", GetTickCount() - g_t0, b.name, why, b.phase);
+    b.chr = nullptr;
+    b.phase = 0;
+    b.lowSince = 0;
+    b.lastTrans = 0;
+    b.transSince = 0;
 }
 
-// Called every frame after the input handler (p3 + 0x10 = player character).
-static void ArtoriasPhaseTick(void* p3) {
-    if (!g_artOn) return;
-    DWORD now = GetTickCount();
-    static DWORD lastTick = 0, scanAt = 0, notFoundLogAt = 0, hpLogAt = 0;
-    if (lastTick && now - lastTick > 2000) ArtoriasReset("no frames for 2 s (loading / menu)");
-    lastTick = now;
-    __try {
-        BYTE* pl = *reinterpret_cast<BYTE**>(static_cast<BYTE*>(p3) + 0x10);
-        if (reinterpret_cast<ULONG_PTR>(pl) >= 0x10000 && *reinterpret_cast<int*>(pl + 0x3E8) <= 0 && g_artPhase)
-            ArtoriasReset("player dead");
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-    }
+static bool IsTransitionAnim(const BossPhase& b, int anim) {
+    return anim == b.anims[0] || (b.anims[1] && anim == b.anims[1]);
+}
+
+static void BossPhaseTick(BossPhase& b, DWORD now) {
     // Writes to the boss (NoDead on / off) only in a frame whose scan has just found him in the enemy list: between
     // scans the game may free the character (crash 2026-11-14 after the player left the arena past the fog wall
     // without fighting; the cause is not proven, but a write through a stale pointer is the one risk here).
     bool fresh = false;
-    if (now - scanAt >= 250) {
-        scanAt = now;
+    if (now - b.scanAt >= 250) {
+        b.scanAt = now;
         int which = 0;
         ThinkIdScan sc;
-        BYTE* chr = FindEnemyByThinkId(kArtoriasThinkId, &which, &sc);
+        BYTE* chr = FindEnemyByThinkId(b.thinkId, &which, &sc);
         fresh = chr != nullptr;
-        if (chr != g_artChr) {
-            if (g_artChr) ArtoriasReset(chr ? "other character" : "boss gone");
-            g_artChr = chr;
+        if (chr != b.chr) {
+            if (b.chr) BossReset(b, chr ? "other character" : "boss gone");
+            b.chr = chr;
             if (chr) {
                 __try {
-                    Log("[%7lu ms] artorias: found chr %p via %s, hp %d/%d, flags2 %08X (%d enemies scanned)",
-                        now - g_t0, chr, which == 1 ? "ai+0xB8" : "*(ai+0x30)+0xB8", *reinterpret_cast<int*>(chr + 0x3E8),
-                        *reinterpret_cast<int*>(chr + 0x3EC), *reinterpret_cast<DWORD*>(chr + 0x524), sc.scanned);
+                    Log("[%7lu ms] %s: found chr %p via %s, hp %d/%d, flags2 %08X (%d enemies scanned)",
+                        now - g_t0, b.name, chr, which == 1 ? "ai+0xB8" : "*(ai+0x30)+0xB8",
+                        *reinterpret_cast<int*>(chr + 0x3E8), *reinterpret_cast<int*>(chr + 0x3EC),
+                        *reinterpret_cast<DWORD*>(chr + 0x524), sc.scanned);
                 } __except (EXCEPTION_EXECUTE_HANDLER) {
                 }
             }
         }
-        if (!chr && kDiag && sc.scanned && now - notFoundLogAt > 15000) {
-            notFoundLogAt = now;
-            Log("[%7lu ms] artorias: not among %d enemies (think ids ai+0xB8 / *(ai+0x30)+0xB8: %d/%d %d/%d %d/%d %d/%d)",
-                now - g_t0, sc.scanned, sc.sample[0][0], sc.sample[0][1], sc.sample[1][0], sc.sample[1][1],
+        if (!chr && kDiag && sc.scanned && now - b.notFoundLogAt > 15000) {
+            b.notFoundLogAt = now;
+            Log("[%7lu ms] %s: not among %d enemies (think ids ai+0xB8 / *(ai+0x30)+0xB8: %d/%d %d/%d %d/%d %d/%d)",
+                now - g_t0, b.name, sc.scanned, sc.sample[0][0], sc.sample[0][1], sc.sample[1][0], sc.sample[1][1],
                 sc.sample[2][0], sc.sample[2][1], sc.sample[3][0], sc.sample[3][1]);
         }
     }
-    if (!g_artChr || g_artPhase >= 2) return;
+    if (!b.chr || b.phase >= 2) return;
     __try {
-        DWORD* flags = reinterpret_cast<DWORD*>(g_artChr + 0x524);
-        int hp = *reinterpret_cast<int*>(g_artChr + 0x3E8), maxHp = *reinterpret_cast<int*>(g_artChr + 0x3EC);
+        DWORD* flags = reinterpret_cast<DWORD*>(b.chr + 0x524);
+        int hp = *reinterpret_cast<int*>(b.chr + 0x3E8), maxHp = *reinterpret_cast<int*>(b.chr + 0x3EC);
         if (fresh && !(*flags & kChrNoDead)) {
             *flags |= kChrNoDead;
-            Log("[%7lu ms] artorias: NoDead on (phase %d, hp %d/%d)", now - g_t0, g_artPhase, hp, maxHp);
+            Log("[%7lu ms] %s: NoDead on (phase %d, hp %d/%d)", now - g_t0, b.name, b.phase, hp, maxHp);
         }
         bool low = maxHp > 0 && hp * 100 <= maxHp;
-        if (g_artPhase == 0 && low) {
-            if (!g_artLowSince) {
-                g_artLowSince = now ? now : 1;
-                Log("[%7lu ms] artorias: hp %d/%d - end of phase 1, waiting for %d", now - g_t0, hp, maxHp,
-                    kArtoriasTransitionAnim);
-            } else if (fresh && now - g_artLowSince > kArtoriasStuckMs) {
+        if (b.phase == 0 && low) {
+            if (!b.lowSince) {
+                b.lowSince = now ? now : 1;
+                Log("[%7lu ms] %s: hp %d/%d - end of phase 1, waiting for %d", now - g_t0, b.name, hp, maxHp, b.anims[0]);
+            } else if (fresh && now - b.lowSince > kBossStuckMs) {
                 *flags &= ~kChrNoDead;
-                g_artPhase = 2;
-                Log("[%7lu ms] artorias: fail-safe - no transition in %lu s, NoDead off", now - g_t0, kArtoriasStuckMs / 1000);
+                b.phase = 2;
+                Log("[%7lu ms] %s: fail-safe - no transition in %lu s, NoDead off", now - g_t0, b.name, kBossStuckMs / 1000);
             }
         } else if (!low) {
-            g_artLowSince = 0;
+            b.lowSince = 0;
         }
-        if (g_artPhase == 1 && kDiag && now - hpLogAt >= 500) {  // the refill of the transition (SpEffect 5512)
-            hpLogAt = now;
-            Log("[%7lu ms] artorias: transition hp %d/%d", now - g_t0, hp, maxHp);
+        if (b.phase == 1 && fresh && now - b.transSince > kBossTransitionMaxMs) {
+            *flags &= ~kChrNoDead;
+            b.phase = 2;
+            Log("[%7lu ms] %s: fail-safe - transition not over in %lu s (last %d), NoDead off", now - g_t0, b.name,
+                kBossTransitionMaxMs / 1000, b.lastTrans);
+        }
+        if (b.phase == 1 && kDiag && now - b.hpLogAt >= 500) {  // the HP refill of the transition
+            b.hpLogAt = now;
+            Log("[%7lu ms] %s: transition hp %d/%d", now - g_t0, b.name, hp, maxHp);
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        ArtoriasReset("read failed");
+        BossReset(b, "read failed");
     }
 }
 
-// Called from PlayAnimDetour: layer 7 of the boss = start / end of the transition.
-static void ArtoriasOnPlayAnim(void* ctx, int anim, int layer) {
-    if (!g_artOn || !g_artChr || layer != 7 || g_artPhase >= 2) return;
+// Called every frame after the input handler (p3 + 0x10 = player character).
+static void BossPhasesTick(void* p3) {
+    bool any = false;
+    for (auto& b : g_bosses) any |= b.on;
+    if (!any) return;
+    DWORD now = GetTickCount();
+    static DWORD lastTick = 0;
+    bool gap = lastTick && now - lastTick > 2000;
+    lastTick = now;
+    bool playerDead = false;
     __try {
-        if (*reinterpret_cast<BYTE**>(static_cast<BYTE*>(ctx) + 0x10) != g_artChr) return;
-        int hp = *reinterpret_cast<int*>(g_artChr + 0x3E8), maxHp = *reinterpret_cast<int*>(g_artChr + 0x3EC);
-        if (anim == kArtoriasTransitionAnim && g_artPhase == 0) {
-            g_artPhase = 1;
-            Log("[%7lu ms] artorias: transition %d started (hp %d/%d)", GetTickCount() - g_t0, anim, hp, maxHp);
-        } else if (g_artPhase == 1 && anim != kArtoriasTransitionAnim) {
-            *reinterpret_cast<DWORD*>(g_artChr + 0x524) &= ~kChrNoDead;
-            g_artPhase = 2;
-            Log("[%7lu ms] artorias: transition over (next anim %d, hp %d/%d) -> phase 2, NoDead off",
-                GetTickCount() - g_t0, anim, hp, maxHp);
+        BYTE* pl = *reinterpret_cast<BYTE**>(static_cast<BYTE*>(p3) + 0x10);
+        playerDead = reinterpret_cast<ULONG_PTR>(pl) >= 0x10000 && *reinterpret_cast<int*>(pl + 0x3E8) <= 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    for (auto& b : g_bosses) {
+        if (!b.on) continue;
+        if (gap) BossReset(b, "no frames for 2 s (loading / menu)");
+        if (playerDead && b.phase) BossReset(b, "player dead");
+        BossPhaseTick(b, now);
+    }
+}
+
+// Layer 7 of the boss = start / end of the transition (Gwyn: 3028 then 3029; it is over with the first other
+// animation after the last one). Between two parts the game requests -1 (log 2026-11-15: every attack ends with
+// "L7 anim=-1" before the next one starts); that does not end a transition whose last part has not started yet.
+static void BossOnPlayAnim(BossPhase& b, void* ctx, int anim) {
+    __try {
+        if (*reinterpret_cast<BYTE**>(static_cast<BYTE*>(ctx) + 0x10) != b.chr) return;
+        int hp = *reinterpret_cast<int*>(b.chr + 0x3E8), maxHp = *reinterpret_cast<int*>(b.chr + 0x3EC);
+        int last = b.anims[1] ? b.anims[1] : b.anims[0];
+        if (b.phase == 0 && IsTransitionAnim(b, anim)) {
+            b.phase = 1;
+            b.lastTrans = anim;
+            DWORD t = GetTickCount();
+            b.transSince = t ? t : 1;
+            Log("[%7lu ms] %s: transition %d started (hp %d/%d)", GetTickCount() - g_t0, b.name, anim, hp, maxHp);
+        } else if (b.phase == 1 && IsTransitionAnim(b, anim)) {
+            b.lastTrans = anim;
+            Log("[%7lu ms] %s: transition %d (hp %d/%d)", GetTickCount() - g_t0, b.name, anim, hp, maxHp);
+        } else if (b.phase == 1 && anim < 0 && b.lastTrans != last) {
+            Log("[%7lu ms] %s: transition %d done, waiting for %d (hp %d/%d)", GetTickCount() - g_t0, b.name,
+                b.lastTrans, last, hp, maxHp);
+        } else if (b.phase == 1) {
+            *reinterpret_cast<DWORD*>(b.chr + 0x524) &= ~kChrNoDead;
+            b.phase = 2;
+            Log("[%7lu ms] %s: transition over (next anim %d, hp %d/%d) -> phase 2, NoDead off",
+                GetTickCount() - g_t0, b.name, anim, hp, maxHp);
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
     }
+}
+
+// Called from PlayAnimDetour.
+static void BossPhasesOnPlayAnim(void* ctx, int anim, int layer) {
+    if (layer != 7) return;
+    for (auto& b : g_bosses)
+        if (b.on && b.chr && b.phase < 2) BossOnPlayAnim(b, ctx, anim);
 }
 
 // Runs after the input handler: the flag is set only in frames where the sprint flag (+0x1E4) is on and
@@ -1544,7 +1617,7 @@ static void __fastcall InputDetour(void* ctx, float dt, void* p3) {
     InjectStandingJump(static_cast<BYTE*>(ctx), dt, p3);
     AirAttackBuffer(static_cast<BYTE*>(ctx));
     FreeStaminaTick(static_cast<const BYTE*>(ctx), p3);
-    ArtoriasPhaseTick(p3);
+    BossPhasesTick(p3);
     HangRepairTick(p3);
     AttackSpeedTick(dt);
     PickupTick(p3);
@@ -2026,7 +2099,7 @@ static void* __fastcall PlayAnimDetour(void* ctx, void* out, int a3, int a4, cha
     LandRunOnPlayAnim(ctx, a3, a4);
     if (kDiag && a3 >= 0) LogFirstUse(a3, a4);
     if (kDiag) { EnemyProbeOnPlayAnim(ctx, a3, a4); }
-    ArtoriasOnPlayAnim(ctx, a3, a4);
+    BossPhasesOnPlayAnim(ctx, a3, a4);
     ItemUpperOnPlayAnim(ctx, out, a3, a4, a5, a6);
     // Diagnostyka: kazde zlecenie na warstwie glownej (takze koniec animacji, a3 = -1), z ctx - gracz ma ten sam ctx co skok.
     if (kDiag && (a4 == 7 || a4 == 23))
