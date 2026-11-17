@@ -13,6 +13,14 @@ Stan: 2026-11-17 (ok. 11:40), nocna DLL = `main` + diagnostyka. Wydanie 0.5.6 op
 
 ## Do przetestowania
 
+K. **Kamera i duzi wrogowie — TERAZ: pomiar warstw kolizji (nocna DLL 17.11 ok. 11:46, `launch_test_all.bat`).** Kamera sprawdza swoją drogę kulą przez Havoka z warstwą kolizji 36. Ta warstwa zderza się z warstwami 0, 12, 17, 27, 28 i 29, ale nie wiadomo, które z nich to postacie. Nocna DLL ma sondę (`[Camera] CollisionProbe=1`): przy każdym zderzeniu kamery wpisuje do logu `camera collision: cast @... hits layer N`. Kamera działa na razie bez zmian (`IgnoreLayers=` puste).
+   - **Do zrobienia (ok. 2 min):**
+     - pobiegaj tyłem do ściany i obróć kamerę tak, żeby wjechała w ścianę;
+     - potem uciekaj od dużego wroga (najlepiej kilku), żeby kamera najechała na jego model, jak w zgłoszeniu;
+     - po każdym z tych dwóch wciśnij **F8**.
+   - Z logu ustalę, która warstwa to ściany, a która wrogowie. Wtedy w ini ustawię `IgnoreLayers` na warstwy postaci i będzie test drugi: kamera ma przechodzić przez wrogów, a dalej zatrzymywać się na ścianach.
+   - Migawka sprzed zmiany: `work\CAMCOLL_BEFORE_2026-11-17_STABLE\`.
+
 0. **Sprint przy namierzeniu — TERAZ: przycisk uniku na padzie + pomiar kamery (nocna DLL z 17.11 10:19, `launch_test_all.bat`).** Przy zawieszeniu od razu F8.
    - **Zgłoszenie (17.11 rano, pad): przy namierzeniu sprint nie wchodził, potem zaczął; w prawo kilka razy unik od razu.** Log: DLL zna przycisk uniku / sprintu tylko z nauki i pamiętała jeden — w pliku był przycisk myszy `0x006` z sesji na klawiaturze. B na padzie (`0x10D`) nie był dla niej unikiem, więc przy namierzeniu unik w bok / do tyłu wychodził przy wciśnięciu (jak w grze bez moda), a sprint przy namierzeniu nie startował (47, 52, 87, 144, 154 s). 90–115 s na myszy działało; w 157,6 s DLL nauczyła się B i od 159,6 s pad działał.
    - **Poprawka:** osobny wyuczony przycisk dla klawiatury / myszy i dla pada (pad domyślnie B), aktywny ten, który wciśnięto ostatnio — w tej samej klatce, przed obsługą wejścia. Plik `er_engine_rollkey.txt` ma teraz trzy liczby (ostatni, klawiatura / mysz, pad); stary format z jedną liczbą działa. W nocnym folderze wpisane `269 6 269` (pad B, mysz 0x006). Sprawdź: na padzie od pierwszego wciśnięcia przy namierzeniu przytrzymanie = sprint w każdą stronę, krótkie wciśnięcie = unik po puszczeniu; potem zmiana na mysz i z powrotem bez „nauki”. W logu `roll key: 0x006 -> 0x10D (pad)`.
