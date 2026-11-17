@@ -44,9 +44,14 @@ Aktualizacja zmienia wyłącznie pliki w folderze moda — nie dotyka gry ani Mo
 - **Graj wyłącznie offline.** Mod zmienia działanie gry w pamięci — gra online grozi banem. Mod nie ma własnej blokady sieci; przed uruchomieniem przełącz Steama w tryb offline albo ustaw w grze start w trybie offline.
 - Na innej wersji `DarkSoulsRemastered.exe` hooki się nie założą i mechaniki z DLL nie będą działać (log: `bin\er_engine.log`).
 
-## Nowe w 0.5.6
+## Nowe w 0.5.7
 
 Wersja testowa (pre-release).
+
+- **Kamera przy dużych wrogach bez przeskoków.** Gra wypychała kamerę przez strefę wokół dużych wrogów (np. Taurus Demon), w jednej klatce o 3–4 m od gracza, prosto w model wroga. Teraz tego nie robi. Kamera może jeszcze na chwilę wejść w wroga, który stoi tuż przy niej, ale krócej i bez skoku. Ustawienie: `PushOut` w sekcji `[Camera]` (`1` = jak w grze).
+- **Mniejsze obrażenia od upadku.** Gracz traci 60% obrażeń z gry (np. z 11 m ok. 210 HP zamiast 360 przy 1500 HP). Upadek zabija dopiero od 26 m, a nie od 20 m, więc między obrażeniami a śmiercią nie ma nagłego skoku. Wrogowie bez zmian. Ustawienie: `DamagePercent` w sekcji `[Fall]` (`100` = jak w grze).
+
+## Nowe w 0.5.6
 
 - **Namierzanie bez przeskoków.** Cel zmienia się tylko po ruchu prawej gałki albo myszy. Gra nie przeskakuje już sama na innego wroga (wcześniej najczęściej w sprincie przy kilku przeciwnikach, razem z kamerą). Gdy cel wyjdzie poza zasięg albo zginie, namierzenie się zwalnia, jak w Elden Ringu bez auto-namierzania. Zasięg namierzenia wynosi 20 m (w grze 15 m, a przy sprincie od celu puszczało już przy 11–12 m). Ustawienia: `LockOnTargetGuard` i `LockOnRange` w sekcji `[Roll]`.
 - **Sprint przy namierzeniu** *(work in progress)*:
@@ -203,7 +208,9 @@ Wersja testowa (pre-release): poprawki sprawdzone w grze, ale mogą pojawić si�
 - `HangRepair=1` (sekcja `[Fixes]`) — naprawa zawieszenia po przewrocie (`0` = wyłączona),
 - `ArtoriasPhase2=2` (sekcja `[Bosses]`) — druga faza Artoriasa: `2` = automatycznie (włączona, gdy w paczce są pliki bossa), `1` = włączona, `0` = wyłączona,
 - `GwynPhase2=2` (sekcja `[Bosses]`) — druga faza Gwyna (w fazie testów), wartości jak wyżej,
-- `CheckForUpdates=1` (sekcja `[Update]`) — sprawdzanie nowej wersji przy uruchomieniu (`0` = wyłączone).
+- `CheckForUpdates=1` (sekcja `[Update]`) — sprawdzanie nowej wersji przy uruchomieniu (`0` = wyłączone),
+- `PushOut=0` (sekcja `[Camera]`) — gra nie wypycha kamery przez strefę dużych wrogów (`1` = jak w grze),
+- `DamagePercent=60` (sekcja `[Fall]`) — obrażenia od upadku gracza w % obrażeń z gry (`100` = jak w grze). `DeathHeight=26` zostaw bez zmian: musi się zgadzać z plikiem `files\chr\c0000.esd.dcx` z paczki.
 
 ## Znane ograniczenia
 

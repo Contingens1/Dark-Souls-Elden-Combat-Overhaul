@@ -44,9 +44,14 @@ An update changes only the files in the mod folder — it does not touch the gam
 - **Play offline only.** The mod changes how the game works in memory — online play risks a ban. The mod has no network block of its own; before launching, switch Steam to offline mode or set the game to start offline.
 - On a different version of `DarkSoulsRemastered.exe` the hooks will not install and the DLL mechanics will not work (log: `bin\er_engine.log`).
 
-## New in 0.5.6
+## New in 0.5.7
 
 Test version (pre-release).
+
+- **No camera jumps near large enemies.** The game pushed the camera through a zone around large enemies (e.g. Taurus Demon), 3–4 m away from the player in one frame, right into the enemy's model. It no longer does. The camera can still briefly enter an enemy standing right next to it, but for a shorter time and without the jump. Setting: `PushOut` in `[Camera]` (`1` = the game's behaviour).
+- **Less fall damage.** The player takes 60% of the game's fall damage (e.g. about 210 HP instead of 360 from 11 m at 1500 HP). A fall kills only from 26 m instead of 20 m, so there is no sudden jump from damage to death. Enemies unchanged. Setting: `DamagePercent` in `[Fall]` (`100` = the game's).
+
+## New in 0.5.6
 
 - **Lock-on without target jumps.** The target changes only when you move the right stick or the mouse. The game no longer switches to another enemy on its own; before, this happened mostly while sprinting near several enemies and took the camera with it. When the target leaves the range or dies, the lock is released, as in Elden Ring without auto-lock. The lock-on range is 20 m. The game uses 15 m, and while sprinting away the lock was already lost at 11–12 m. Settings: `LockOnTargetGuard` and `LockOnRange` in `[Roll]`.
 - **Sprint while locked on** *(work in progress)*:
@@ -203,7 +208,9 @@ Test version (pre-release): fixes checked in the game, but bugs may still appear
 - `HangRepair=1` (section `[Fixes]`) — repair of a hang after a roll (`0` = off),
 - `ArtoriasPhase2=2` (section `[Bosses]`) — Artorias's second phase: `2` = automatic (on when the boss files are in the package), `1` = on, `0` = off,
 - `GwynPhase2=2` (section `[Bosses]`) — Gwyn's second phase (in testing), values as above,
-- `CheckForUpdates=1` (section `[Update]`) — check for a new version at startup (`0` = off).
+- `CheckForUpdates=1` (section `[Update]`) — check for a new version at startup (`0` = off),
+- `PushOut=0` (section `[Camera]`) — the game does not push the camera through the zone of large enemies (`1` = the game's behaviour),
+- `DamagePercent=60` (section `[Fall]`) — player fall damage in % of the game's (`100` = the game's). Leave `DeathHeight=26` as it is: it must match `files\chr\c0000.esd.dcx` from the package.
 
 ## Known limitations
 

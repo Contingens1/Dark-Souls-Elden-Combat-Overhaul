@@ -13,17 +13,6 @@ Stan: 2026-11-17 (ok. 11:40), nocna DLL = `main` + diagnostyka. Wydanie 0.5.6 op
 
 ## Do przetestowania
 
-U. **Obrażenia od upadku — TERAZ: pomiar (nocna DLL z 17.11, `launch_test_all.bat`).** Sonda tylko loguje, gra działa bez zmian.
-   - **Co zrobić:** zeskocz kilka razy z różnych wysokości, mniej więcej 4, 8, 12 i 16 m (np. z murów i schodów Firelink / Undead Burg). Przed każdym zeskokiem wciśnij F8. Jeśli możesz, jeden zeskok zrób w lekkim, a drugi w ciężkim pancerzu.
-   - **Co sprawdzam w logu:** wysokość, wynik wzoru gry i ile HP faktycznie ubyło. Spodziewam się, że ubytek to wynik wzoru razy maks. HP.
-   - **Wzór gry (Ghidra 17.11):** poniżej 5 m nie ma obrażeń, od 20 m upadek zabija. Pomiędzy gracz traci `(wysokość/20)²` maks. HP, razy współczynnik ciężaru: od 0,7 przy wadze ekwipunku 0 do 1,0 przy 90 i więcej. Przy 12 m i ciężkim pancerzu to 36% maks. HP. Po pomiarze zmiana tych stałych z opcją w ini.
-
-K. **Kamera i duzi wrogowie — zaliczone w nocnej paczce: `[Camera] PushOut=0` (17.11). Wchodzi do wydania (decyzja gracza 17.11, `PushOut=0` dopisane do ini paczki wydania).**
-   - **Przyczyna:** to nie kolizja kamery. Zapytania kolizji kamery w ogóle nie trafiają postaci (warstwa 28 to ściany, 27 to ziemia). Gra ma osobny mechanizm „wypychania kamery”: postać zakłada wokół punktu modelu typu `0xE4` kulę (promień z `NpcParam.pushOutCamRegionRadius`, w DSR wszędzie 0, więc z samego punktu). Kamerę, która wejdzie do kuli, gra przesuwa wzdłuż linii widoku **od postaci gracza** na drugą stronę kuli (koniec `FUN_140236c60`, test flagi pod RVA `0x23A023`). Przy Taurusach kamera skakała w jednej klatce o 3,1–3,6 m dalej, prosto w środek modelu, i po 0,1–0,5 s wracała skokiem. `CamDist` cały czas 3,80, więc nasze `LockCamParam` nie mają z tym związku.
-   - **Zmiana:** `PushOut=0` łata ten test flagi tak, że gra pomija każdą kulę, a kamera zostaje tam, gdzie liczy ją ChrFollowCam. Wynik u gracza: przeskakiwania nie ma, jest dużo lepiej. Kamera nadal czasem wchodzi w wroga, ale krócej i tylko wtedy, gdy duży wróg jest tuż przy niej (log: przesunięcie zawsze 0,00 m, kamera najbliżej 0,3–0,9 m od osi wroga).
-   - **Ukrywanie wroga z kamerą w środku: nie działa, usunięte z DLL.** Flaga ChrFlags1 `chr+0x294` bit `0x00800000` („ToggleDraw” z DSR-Gadget) nie chowa modelu. Przy marginesie 3 m DLL „ukryła” 36 postaci, a gracz nic nie zauważył. Prawdziwe wygaszanie wymaga znalezienia przezroczystości postaci w kodzie gry (trop: `camouflage` z `SpEffectVfx`, którego używa Hidden Body). Na później, zadanie 18c w planie.
-   - Migawka sprzed zmian kamery: `work\CAMCOLL_BEFORE_2026-11-17_STABLE\`.
-
 0. **Sprint przy namierzeniu — TERAZ: przycisk uniku na padzie + pomiar kamery (nocna DLL z 17.11 10:19, `launch_test_all.bat`).** Przy zawieszeniu od razu F8.
    - **Zgłoszenie (17.11 rano, pad): przy namierzeniu sprint nie wchodził, potem zaczął; w prawo kilka razy unik od razu.** Log: DLL zna przycisk uniku / sprintu tylko z nauki i pamiętała jeden — w pliku był przycisk myszy `0x006` z sesji na klawiaturze. B na padzie (`0x10D`) nie był dla niej unikiem, więc przy namierzeniu unik w bok / do tyłu wychodził przy wciśnięciu (jak w grze bez moda), a sprint przy namierzeniu nie startował (47, 52, 87, 144, 154 s). 90–115 s na myszy działało; w 157,6 s DLL nauczyła się B i od 159,6 s pad działał.
    - **Poprawka:** osobny wyuczony przycisk dla klawiatury / myszy i dla pada (pad domyślnie B), aktywny ten, który wciśnięto ostatnio — w tej samej klatce, przed obsługą wejścia. Plik `er_engine_rollkey.txt` ma teraz trzy liczby (ostatni, klawiatura / mysz, pad); stary format z jedną liczbą działa. W nocnym folderze wpisane `269 6 269` (pad B, mysz 0x006). Sprawdź: na padzie od pierwszego wciśnięcia przy namierzeniu przytrzymanie = sprint w każdą stronę, krótkie wciśnięcie = unik po puszczeniu; potem zmiana na mysz i z powrotem bez „nauki”. W logu `roll key: 0x006 -> 0x10D (pad)`.
@@ -169,6 +158,9 @@ K. **Kamera i duzi wrogowie — zaliczone w nocnej paczce: `[Camera] PushOut=0` 
 
 ## Zaliczone ostatnio
 
+- 17.11 (wydanie 0.5.7): kamera przy dużych wrogach i obrażenia od upadku.
+  - **Kamera:** `[Camera] PushOut=0` łata test flagi pod RVA `0x23A023`, więc gra nie wypycha kamery przez strefę wokół dużych wrogów. Gracz: nie ma przeskakiwania, jest dużo lepiej. Kamera nadal czasem na krótko wchodzi w wroga tuż przy niej. Ukrywanie przez ChrFlags1 `0x800000` nie działa i jest usunięte; płynne wygaszanie (trop `camouflage`) na później.
+  - **Upadek:** `[Fall] DamagePercent=60`, `DeathHeight=26` i ESD gracza z progiem śmierci 26 m (`tools\esd_fall_death.py`). Log: 21,1 m −779 HP (1327 → 548) i przeżycie; przy ×0,5 11,4 m −190, 17,7 m −455. Ubytek HP = wynik wzoru gry × maks. HP, co do punktu.
 - 16.11 (na `main`): sprint przy namierzeniu w każdą stronę, wersja 3.1. Gracz: hamowanie i powrót do celu bardzo dobre, obroty w trakcie sprintu bardzo dobre, różne kąty bez błędów. Start jeszcze trochę drewniany: postać od razu się obraca i zwalnia (z logu: przy zmianie animacji biegu tyłem → bokiem → przodem prędkość spada z ~4 do 2,3–3 m/s, sprint dochodzi do 6 m/s dopiero po ~0,3 s). Poprawka startu: następna wersja.
 - 15.11 noc (na `main`, wejdzie do następnego wydania): sterowanie w powietrzu przy dalekim skoku w dół. Postać obraca się do gałki przez cały lot, wolno jak w ER (60°/s); gracz: „na początku większa sterowność, potem mniejsza, ale działa”.
 - 15.11 noc: Capra Demon jako Omen Killer w porządku. Gaping Dragon bez krytycznych problemów (gracz chce do niego kiedyś wrócić, ma potencjał).

@@ -612,6 +612,8 @@ static float g_lockRange = 0.f;               // [Roll] LockOnRange (m, v3.8c; 0
 static unsigned long long g_camIgnoreLayers = 0;  // [Camera] IgnoreLayers (bit per collision layer, see CamCastDetour)
 static bool g_camProbe = false;               // [Camera] CollisionProbe (dev builds: log the layer the camera hits)
 static bool g_camPushOut = true;              // [Camera] PushOut (0 = no push-out spheres, see PatchCamPushOut)
+static int g_fallDamagePct = 100;             // [Fall] DamagePercent (player fall damage, % of the game's, see SetFallDamage)
+static int g_fallDeathHeight = 20;            // [Fall] DeathHeight (m, the game's 20; player and enemies)
 static void TargetGuardTick();                // below, with the lock target guard hooks
 static BYTE g_tcLastMode = 0xFF;              // movement mode seen in the last call for the player
 static DWORD g_tcSwitchAt = 0;                // tick of the last mode switch made with the stick held (0 = none)
@@ -909,6 +911,11 @@ static void LoadConfigIni() {
         Log("config: [Camera] IgnoreLayers=%s (mask %016llX) CollisionProbe=%d PushOut=%d", buf, g_camIgnoreLayers,
             g_camProbe ? 1 : 0, g_camPushOut ? 1 : 0);
     }
+    g_fallDamagePct = GetPrivateProfileIntA("Fall", "DamagePercent", 100, iniPath);
+    if (g_fallDamagePct < 1 || g_fallDamagePct > 100) g_fallDamagePct = 100;
+    g_fallDeathHeight = GetPrivateProfileIntA("Fall", "DeathHeight", 20, iniPath);
+    if (g_fallDeathHeight < 20 || g_fallDeathHeight > 60) g_fallDeathHeight = 20;
+    Log("config: [Fall] DamagePercent=%d DeathHeight=%d m", g_fallDamagePct, g_fallDeathHeight);
     Log("config: LockOnSprintTurnIn=%.0f TurnOut=%.0f deg/s Align=%.0f deg Accel=%.0f deg/s2 TurnStart=%lu ms "
         "BackAngle=%.0f deg SpeedHold=%d LockGuard=%d TurnClipOff=%d (window %lu ms)",
         g_lockSprintTurnIn, g_lockSprintTurnOut, g_lockSprintAlign, g_lockSprintTurnAccel, g_lockSprintTurnStartMs,
@@ -5488,6 +5495,30 @@ static void PatchCamPushOut() {
     Log("camera push-out: off (flag test @0x23A023 patched)");
 }
 
+// Fall damage (Ghidra 17.11, measured in game 17.11: HP lost = rate * max HP, exact). The rate formula's constants
+// are plain .data floats (the developers' GameRule debug menu edits them), so the change writes new values, no code
+// patch. Player rate = pow(h / [0x1A2B620], [0x1A2B628]) * equip weight factor (0.7..1.0), 0 under [0x1A2B630] (5 m),
+// 1.0 (= death) from [0x1A2B61C] (20 m). DamagePercent p scales the player's rate by p/100 through the player-only
+// reference height: 20 / sqrt(p/100). DeathHeight moves the shared 20 m limit (enemies too, but their own curve
+// (h/15)^1.8 already reaches 100% HP at about 15 m, so for them it changes almost nothing). The player's landing
+// death itself is not this limit: c0000.esd sends f224() >= 20 to state 97 (anim 6070, death), test 17.11 (20.5 m:
+// formula -614 HP, death 360 ms later). tools/esd_fall_death.py moves that ESD limit; keep both equal.
+static void SetFallDamage() {
+    auto base = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr));
+    float* death = reinterpret_cast<float*>(base + 0x1A2B61C);
+    float* refPl = reinterpret_cast<float*>(base + 0x1A2B620);
+    float* expPl = reinterpret_cast<float*>(base + 0x1A2B628);
+    float* minH = reinterpret_cast<float*>(base + 0x1A2B630);
+    if (*death != 20.0f || *refPl != 20.0f || *expPl != 2.0f || *minH != 5.0f) {
+        Log("fall damage: unexpected constants @0x1A2B61C (%.2f %.2f %.2f %.2f) - left as the game's", *death, *refPl,
+            *expPl, *minH);
+        return;
+    }
+    *refPl = 20.0f / sqrtf(static_cast<float>(g_fallDamagePct) / 100.0f);
+    *death = static_cast<float>(g_fallDeathHeight);
+    Log("fall damage: player %d%% (reference height %.2f m), death from %.0f m", g_fallDamagePct, *refPl, *death);
+}
+
 #if ER_DIAG == 1
 // Fall damage probe (dev builds only, read-only: logs, never changes the result). Ghidra 17.11:
 // PlayerIns vtable slot +0x2A8 (FUN_14035f750, RVA 0x35F750) = fall damage rate for a fall height in metres:
@@ -5514,8 +5545,10 @@ static float FallRateLog(FallRateFn orig, void* chr, float h, const char* who) {
         auto c = static_cast<BYTE*>(chr);
         int hp = *reinterpret_cast<int*>(c + 0x3E8), maxHp = *reinterpret_cast<int*>(c + 0x3EC);
         if (now - lastAt > 300 || fabsf(h - lastH) > 0.01f) {
-            float q = h / (who[0] == 'p' ? 20.0f : 15.0f);
-            float curve = who[0] == 'p' ? q * q : powf(q, 1.8f);
+            auto g = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr));
+            bool pl = who[0] == 'p';
+            float q = h / *reinterpret_cast<float*>(g + (pl ? 0x1A2B620 : 0x1A2B624));
+            float curve = powf(q, *reinterpret_cast<float*>(g + (pl ? 0x1A2B628 : 0x1A2B62C)));
             Log("[%7lu ms] fall probe: %s chr=%p height=%.2f m rate=%.4f (curve %.4f, factor %.3f) HP %d/%d -> expected -%d",
                 now - g_t0, who, chr, h, r, curve, curve > 0.0f ? r / curve : 0.0f, hp, maxHp,
                 static_cast<int>(r * static_cast<float>(maxHp)));
@@ -5650,6 +5683,7 @@ static DWORD WINAPI InitThread(LPVOID) {
     if (g_lockTargetGuard) InstallTargetGuardHooks();
     if (g_camIgnoreLayers || g_camProbe) InstallCamCastHooks();
     if (!g_camPushOut) PatchCamPushOut();
+    if (g_fallDamagePct != 100 || g_fallDeathHeight != 20) SetFallDamage();
     if (kDevDiag) InstallSubmitProbes();
 #if ER_DIAG == 1
     InstallFallProbe();
