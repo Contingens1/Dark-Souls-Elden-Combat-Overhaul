@@ -13,7 +13,12 @@ Stan: 2026-11-17 (ok. 11:40), nocna DLL = `main` + diagnostyka. Wydanie 0.5.6 op
 
 ## Do przetestowania
 
-K. **Kamera i duzi wrogowie — zaliczone w nocnej paczce: `[Camera] PushOut=0` (17.11). Czeka na decyzję, czy wchodzi do wydania (tam na razie `PushOut=1`, czyli zachowanie gry).**
+U. **Obrażenia od upadku — TERAZ: pomiar (nocna DLL z 17.11, `launch_test_all.bat`).** Sonda tylko loguje, gra działa bez zmian.
+   - **Co zrobić:** zeskocz kilka razy z różnych wysokości, mniej więcej 4, 8, 12 i 16 m (np. z murów i schodów Firelink / Undead Burg). Przed każdym zeskokiem wciśnij F8. Jeśli możesz, jeden zeskok zrób w lekkim, a drugi w ciężkim pancerzu.
+   - **Co sprawdzam w logu:** wysokość, wynik wzoru gry i ile HP faktycznie ubyło. Spodziewam się, że ubytek to wynik wzoru razy maks. HP.
+   - **Wzór gry (Ghidra 17.11):** poniżej 5 m nie ma obrażeń, od 20 m upadek zabija. Pomiędzy gracz traci `(wysokość/20)²` maks. HP, razy współczynnik ciężaru: od 0,7 przy wadze ekwipunku 0 do 1,0 przy 90 i więcej. Przy 12 m i ciężkim pancerzu to 36% maks. HP. Po pomiarze zmiana tych stałych z opcją w ini.
+
+K. **Kamera i duzi wrogowie — zaliczone w nocnej paczce: `[Camera] PushOut=0` (17.11). Wchodzi do wydania (decyzja gracza 17.11, `PushOut=0` dopisane do ini paczki wydania).**
    - **Przyczyna:** to nie kolizja kamery. Zapytania kolizji kamery w ogóle nie trafiają postaci (warstwa 28 to ściany, 27 to ziemia). Gra ma osobny mechanizm „wypychania kamery”: postać zakłada wokół punktu modelu typu `0xE4` kulę (promień z `NpcParam.pushOutCamRegionRadius`, w DSR wszędzie 0, więc z samego punktu). Kamerę, która wejdzie do kuli, gra przesuwa wzdłuż linii widoku **od postaci gracza** na drugą stronę kuli (koniec `FUN_140236c60`, test flagi pod RVA `0x23A023`). Przy Taurusach kamera skakała w jednej klatce o 3,1–3,6 m dalej, prosto w środek modelu, i po 0,1–0,5 s wracała skokiem. `CamDist` cały czas 3,80, więc nasze `LockCamParam` nie mają z tym związku.
    - **Zmiana:** `PushOut=0` łata ten test flagi tak, że gra pomija każdą kulę, a kamera zostaje tam, gdzie liczy ją ChrFollowCam. Wynik u gracza: przeskakiwania nie ma, jest dużo lepiej. Kamera nadal czasem wchodzi w wroga, ale krócej i tylko wtedy, gdy duży wróg jest tuż przy niej (log: przesunięcie zawsze 0,00 m, kamera najbliżej 0,3–0,9 m od osi wroga).
    - **Ukrywanie wroga z kamerą w środku: nie działa, usunięte z DLL.** Flaga ChrFlags1 `chr+0x294` bit `0x00800000` („ToggleDraw” z DSR-Gadget) nie chowa modelu. Przy marginesie 3 m DLL „ukryła” 36 postaci, a gracz nic nie zauważył. Prawdziwe wygaszanie wymaga znalezienia przezroczystości postaci w kodzie gry (trop: `camouflage` z `SpEffectVfx`, którego używa Hidden Body). Na później, zadanie 18c w planie.

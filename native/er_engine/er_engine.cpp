@@ -283,6 +283,9 @@ static void AirControlTick(float dt);   // nizej, sterowanie w locie
 static void AirControlOnPlayAnim(int anim, int layer);
 static void PhysProbeTick();            // nizej, sonda fizyki skoku (tylko odczyt)
 static void EnemyProbeTick();           // below: enemy attack probe (read-only, ER_DIAG)
+#if ER_DIAG == 1
+static void FallProbeTick();            // below: fall damage probe (read-only, dev builds)
+#endif
 static void HangProbeTick(const BYTE* ctx, void* p3);  // below: frozen-player probe (read-only, ER_DIAG)
 static void HangRepairTick(void* p3);                    // below: move-flag watch and repair ([Fixes] HangRepair)
 static DWORD g_rollEndAt = 0;  // end of the player's last roll / backstep (L7 700-799 -> -1); 0 = another anim since
@@ -2219,6 +2222,9 @@ static void __fastcall InputDetour(void* ctx, float dt, void* p3) {
     AirMomentumTick(dt);
     LandRunTick(p3);
     if (kDiag) { PhysProbeTick(); EnemyProbeTick(); HangProbeTick(static_cast<const BYTE*>(ctx), p3); }
+#if ER_DIAG == 1
+    FallProbeTick();
+#endif
     AirAttackTick(dt);
     if (kDiag) {  // F8 = znacznik w logu (podzial testu na kroki)
         static bool f8 = false;
@@ -5482,6 +5488,80 @@ static void PatchCamPushOut() {
     Log("camera push-out: off (flag test @0x23A023 patched)");
 }
 
+#if ER_DIAG == 1
+// Fall damage probe (dev builds only, read-only: logs, never changes the result). Ghidra 17.11:
+// PlayerIns vtable slot +0x2A8 (FUN_14035f750, RVA 0x35F750) = fall damage rate for a fall height in metres:
+//   h < [0x141A2B630] (5)  -> 0;  h >= [0x141A2B61C] (20) -> 1.0;
+//   else pow(h / [0x141A2B620] (20), [0x141A2B628] (2)) * weight factor (FUN_1402df580, equip weight vs
+//   m_fallDamage_DefaultWeight [0x141A2B634] = 100: piecewise table 0x141A2B640 / 0x141A2B658, 0.7..1.0).
+// EnemyIns slot +0x2A8 (FUN_14034b1f0, RVA 0x34B1F0): pow(h / [0x141A2B624] (15), [0x141A2B62C] (1.8))
+//   * (100 - NpcParam byte +0x120) * 0.01, same 5 m / 20 m limits.
+// The caller (call [rax+0x2A8] at 0x14032820A) sits in Arxan-obfuscated code; this probe checks in game how the
+// rate turns into HP lost (expected: rate * max HP).
+using FallRateFn = float(__fastcall*)(void* chr, float height);
+static FallRateFn g_origFallRatePl = nullptr;
+static FallRateFn g_origFallRateEn = nullptr;
+static BYTE* g_fallChr = nullptr;      // player whose HP the tick follows after a logged fall
+static int g_fallHp = 0;
+static DWORD g_fallAt = 0;
+
+static float FallRateLog(FallRateFn orig, void* chr, float h, const char* who) {
+    float r = orig(chr, h);
+    static DWORD lastAt = 0;
+    static float lastH = -1.0f;
+    DWORD now = GetTickCount();
+    __try {
+        auto c = static_cast<BYTE*>(chr);
+        int hp = *reinterpret_cast<int*>(c + 0x3E8), maxHp = *reinterpret_cast<int*>(c + 0x3EC);
+        if (now - lastAt > 300 || fabsf(h - lastH) > 0.01f) {
+            float q = h / (who[0] == 'p' ? 20.0f : 15.0f);
+            float curve = who[0] == 'p' ? q * q : powf(q, 1.8f);
+            Log("[%7lu ms] fall probe: %s chr=%p height=%.2f m rate=%.4f (curve %.4f, factor %.3f) HP %d/%d -> expected -%d",
+                now - g_t0, who, chr, h, r, curve, curve > 0.0f ? r / curve : 0.0f, hp, maxHp,
+                static_cast<int>(r * static_cast<float>(maxHp)));
+        }
+        lastAt = now;
+        lastH = h;
+        if (who[0] == 'p') { g_fallChr = c; g_fallHp = hp; g_fallAt = now ? now : 1; }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return r;
+}
+static float __fastcall FallRatePlDetour(void* chr, float h) { return FallRateLog(g_origFallRatePl, chr, h, "player"); }
+static float __fastcall FallRateEnDetour(void* chr, float h) { return FallRateLog(g_origFallRateEn, chr, h, "enemy"); }
+
+// Logs every HP change of the player for 2 s after a logged fall rate.
+static void FallProbeTick() {
+    if (!g_fallAt) return;
+    DWORD now = GetTickCount();
+    __try {
+        int hp = *reinterpret_cast<int*>(g_fallChr + 0x3E8);
+        if (hp != g_fallHp) {
+            Log("[%7lu ms] fall probe: player HP %d -> %d (%+d, %lu ms after the rate call)", now - g_t0, g_fallHp, hp,
+                hp - g_fallHp, now - g_fallAt);
+            g_fallHp = hp;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { g_fallAt = 0; }
+    if (now - g_fallAt > 2000) g_fallAt = 0;
+}
+
+static void InstallFallProbe() {
+    static const BYTE kPl[] = {0x48, 0x83, 0xEC, 0x38, 0x48, 0x8B, 0x01, 0x0F, 0x29, 0x74, 0x24, 0x20};
+    static const BYTE kEn[] = {0x40, 0x53, 0x48, 0x83, 0xEC, 0x30, 0x48, 0x8B, 0x01, 0x48, 0x8B, 0xD9};
+    auto base = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr));
+    BYTE* pl = base + 0x35F750;
+    BYTE* en = base + 0x34B1F0;
+    if (memcmp(pl, kPl, sizeof(kPl)) != 0 || memcmp(en, kEn, sizeof(kEn)) != 0) {
+        Log("fall probe: unexpected bytes @0x35F750 / 0x34B1F0 - off");
+        return;
+    }
+    MH_STATUS a = MH_CreateHook(pl, reinterpret_cast<void*>(&FallRatePlDetour), reinterpret_cast<void**>(&g_origFallRatePl));
+    if (a == MH_OK) a = MH_EnableHook(pl);
+    MH_STATUS b = MH_CreateHook(en, reinterpret_cast<void*>(&FallRateEnDetour), reinterpret_cast<void**>(&g_origFallRateEn));
+    if (b == MH_OK) b = MH_EnableHook(en);
+    Log("fall probe: rate hooks @0x35F750 / 0x34B1F0: %s / %s", MH_StatusToString(a), MH_StatusToString(b));
+}
+#endif
+
 static void InstallTurnDispatchHook() {
     static const BYTE kPrologue[] = {0x40, 0x53, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x70, 0x0F, 0x29, 0x74, 0x24, 0x60};
     auto target = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr)) + 0x39F5C0;
@@ -5571,6 +5651,9 @@ static DWORD WINAPI InitThread(LPVOID) {
     if (g_camIgnoreLayers || g_camProbe) InstallCamCastHooks();
     if (!g_camPushOut) PatchCamPushOut();
     if (kDevDiag) InstallSubmitProbes();
+#if ER_DIAG == 1
+    InstallFallProbe();
+#endif
     InstallDrinkSlowWalk();
     return 0;
 }
