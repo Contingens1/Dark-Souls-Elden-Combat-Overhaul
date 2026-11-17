@@ -16,6 +16,12 @@
 - Do not read `docs\er_anim_a000.md` in full (72 KB). Use grep.
 - Do not dump raw Ghidra output, decompilation logs, `.dcx`/`.dll`/`.bin` files or whole directories (`work\`, `dist\`, `toolsy\`, `gemini\`) into context. Search with grep or targeted reads.
 
+## Log analysis and context budget
+- Unless absolutely necessary, do not load whole log files (`.log`, `.txt`, `.csv`) into context with file-read tools, `cat` or `Get-Content`. The night log (`dist\mods\c0000_er_engine_night\bin\er_engine.log`) has hundreds of thousands of lines; one session is thousands.
+- Find the session first (line of its `config:` entry), count before listing (`grep -c`), and cap every listing (`head`, `cut -c1-200`).
+- Filter for the event in question with short grep one-liners or a Python script written to a file (see Working conventions; reusable ones in `work\log_tools\`), e.g. ±15 frames around a lock-on mode switch, a sudden yaw jump or one hook's entries, and print only the relevant lines or a one-line-per-event table.
+- Never print the per-frame `fiz +` physics lines or a whole F8 dump unless that exact window is the question.
+
 ## Directory map (`C:\Users\nemos\workspace\ds1-elden-port\`)
 - `docs\PLAN_PROJEKTU.md` — current state, offsets, snapshots, task list. Keep it updated after each milestone.
 - `docs\` — official, tracked docs: `PLAN_PROJEKTU.md`, `TESTY.md`, animation maps (`*_anim_map.md`), `er_anim_a000.md`, `weapon_groups_dsr_er.md`, `ref_DSR-Gadget_DSROffsets.cs`.

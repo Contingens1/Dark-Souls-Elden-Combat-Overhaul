@@ -587,6 +587,43 @@ static float g_lsOmega = 0.f;      // turn speed (rad/s, signed) carried between
 static float g_lsYaw = 0.f;        // yaw held this frame
 static DWORD g_lsSince = 0;        // tick the current state began
 static DWORD g_lsIdleAt = 0;       // tick of the last return to idle (diag: locomotion clips after it)
+// v3.7 (LockOnTurnClipOff, test 2026-11-17): the turn clip on a lock-on / lock-off while moving (ESD states 37/38 play
+// 610/640 on layers 8/24, ~0.7 s with the movement controller off) is asked for by the turn routine (dispatcher
+// FUN_14039f5c0 -> lock-on FUN_14039fcc0 / free movement FUN_1403a0440). With a turn over 90 deg it requests the clip
+// whose ID sits in its object T (T+0x10 = ChrCtrl): T+0x18 / +0x20 left small / large, +0x1C / +0x24 right small /
+// large, +0x28 free movement. An ID < 0 means no clip: the routine then turns the character through its turn speed.
+// In the window the DLL hooks the dispatcher (TurnDispatchDetour) and sets those IDs to -1 for that one call, then
+// puts the game's values back. Nothing is skipped (v3.3 hung) and ChrCtrl+0x1B0 is never written (v3.6 hung).
+// Window: the stick held and either within LockOnTurnClipWindow ms of a movement mode switch (ChrCtrl+0x21D, lock-on /
+// lock-off) made with the stick held, or while the DLL holds the lock switch back (v3.5) or runs its sprint turn.
+static bool g_lockTurnClipOff = false;        // [Roll] LockOnTurnClipOff
+static DWORD g_lockTurnClipWindowMs = 800;    // [Roll] LockOnTurnClipWindow
+static BYTE g_tcLastMode = 0xFF;              // movement mode seen in the last call for the player
+static DWORD g_tcSwitchAt = 0;                // tick of the last mode switch made with the stick held (0 = none)
+static int g_tcCalls = 0;                     // diag: calls with the clips off since the last log line
+// v3.7b (player test 17.11: sideways OK, still a turn-around on lock-off in a backward sprint). The x0602-x0605 / x0620
+// IDs in T are not the turn-around: T holds 602-605 (lock-on) and 620 (free). The turn-around clips 610 / 640 are ESD
+// f211 / f253 = ActionCtrl+0x1DC bits 0 / 1 (env query FUN_14038b540, vtable of EzStateActionEnv), set in the ChrCtrl
+// movement update FUN_140381fe0 when FUN_14039f980(T, 105 deg, &turn) finds that the wanted facing (ring T+0x90 over
+// the last T+0x184 frames, written by the dispatcher) changed by more than 105 deg (610 at any speed, 640 with the
+// sprint ramp up). On a lock mode switch the wanted facing jumps between the target and the stick although the
+// character may already face where it goes (log 17.11, lock-off in a DLL sprint: away from the target 134-179 deg ->
+// a clip every time, sideways 98-104 deg -> none; lock-on let through after the turn back, 9-11 deg off the target ->
+// 610). In the lock window the DLL keeps the game's "large turn" only when the character really has more than the
+// game's limit left to turn: to the stick in the free mode, to the target in the lock-on mode (BigTurnDetour).
+// v3.7c (player test v3.7b 17.11: the turn-around still on lock-off in a backward / diagonal sprint, "very jerky").
+// Log: in the lock-off frame the game's move vector is zero (TURN CLIP: sprinting 0, move dir -1), so v3.7b saw no
+// stick and kept the game's "large turn" (one success in the session, when the stick was seen). v3.7c: the large turn
+// is turned off while the DLL drives the facing (its sprint states, the lock switch held back), and in the window
+// after a mode switch that came during them (the character faces the stick by design); otherwise in the window the
+// v3.7b check, with the last stick direction seen in the last kTcStickKeepMs.
+static float g_lsMoveYaw = 0.f;               // world yaw of the stick (LockSprintTick), last seen at g_lsMoveAt
+static bool g_lsMoving = false;               // the stick moved the character in this frame
+static DWORD g_lsMoveAt = 0;                  // tick g_lsMoveYaw was last set
+static DWORD g_lsDllActiveAt = 0;             // tick the DLL's sprint states (g_lsState != idle) last ran
+static bool g_tcFromDll = false;              // the last mode switch came during the DLL's sprint states
+constexpr DWORD kTcStickKeepMs = 150, kTcDllRecentMs = 200;
+static int g_tcUturnsOff = 0;                 // diag: large-turn answers turned off since the last log line
 static bool g_landStartTimeOn = false;   // er_engine.ini [Jump] LandStartTime (jump attack section)
 static float g_landBlendSec = 0.f;       // [Jump] LandBlend (ms): swing -> landing pose blend, 0 = the game's 0.03 s
 static float g_landSpeedCap = 0.f;       // [Jump] LandSpeedCap (m/s): horizontal speed cap after touchdown, 0 = off
@@ -835,10 +872,13 @@ static void LoadConfigIni() {
     g_lockSprintBackAngle = static_cast<float>(GetPrivateProfileIntA("Roll", "LockOnSprintBackAngle", 0, iniPath));
     g_lockSprintSpeedHold = GetPrivateProfileIntA("Roll", "LockOnSprintSpeedHold", 0, iniPath) != 0;
     g_lockSprintLockGuard = GetPrivateProfileIntA("Roll", "LockOnSprintLockGuard", 0, iniPath) != 0;
+    g_lockTurnClipOff = GetPrivateProfileIntA("Roll", "LockOnTurnClipOff", 0, iniPath) != 0;
+    g_lockTurnClipWindowMs = GetPrivateProfileIntA("Roll", "LockOnTurnClipWindow", 800, iniPath);
     Log("config: LockOnSprintTurnIn=%.0f TurnOut=%.0f deg/s Align=%.0f deg Accel=%.0f deg/s2 TurnStart=%lu ms "
-        "BackAngle=%.0f deg SpeedHold=%d LockGuard=%d",
+        "BackAngle=%.0f deg SpeedHold=%d LockGuard=%d TurnClipOff=%d (window %lu ms)",
         g_lockSprintTurnIn, g_lockSprintTurnOut, g_lockSprintAlign, g_lockSprintTurnAccel, g_lockSprintTurnStartMs,
-        g_lockSprintBackAngle, g_lockSprintSpeedHold ? 1 : 0, g_lockSprintLockGuard ? 1 : 0);
+        g_lockSprintBackAngle, g_lockSprintSpeedHold ? 1 : 0, g_lockSprintLockGuard ? 1 : 0, g_lockTurnClipOff ? 1 : 0,
+        g_lockTurnClipWindowMs);
     g_landStartTimeOn = GetPrivateProfileIntA("Jump", "LandStartTime", 0, iniPath) != 0;
     g_landBlendSec = GetPrivateProfileIntA("Jump", "LandBlend", 0, iniPath) / 1000.f;
     g_landSpeedCap = static_cast<float>(GetPrivateProfileIntA("Jump", "LandSpeedCap", 0, iniPath));
@@ -1321,6 +1361,7 @@ static float LsTurn(float yaw, float goal, float rateDeg, float dt) {
 // copies it later in the same frame, so clearing it here keeps the run (as SuppressSprintWhileDrinking does).
 static void LockSprintTick(BYTE* ctx, float dt, void* p3) {
     if (!g_lockSprintFreeOn) return;
+    g_lsMoving = false;  // set again below once the stick direction is known
     if (!ctx || !p3) { LsSet(kLsIdle, "no input"); return; }
     BYTE* pos = ChrPosData();
     if (!pos) { LsSet(kLsIdle, "no position"); return; }
@@ -1341,6 +1382,11 @@ static void LockSprintTick(BYTE* ctx, float dt, void* p3) {
     float mag = sqrtf(g_axis[0] * g_axis[0] + g_axis[1] * g_axis[1]);
     bool moving = mag >= 0.3f && wx * wx + wz * wz > 0.01f;
     float moveYaw = moving ? atan2f(-wx, -wz) : yaw;
+    g_lsMoving = moving;
+    if (moving) {
+        g_lsMoveYaw = moveYaw;
+        g_lsMoveAt = now ? now : 1;
+    }
     bool busy = g_mainAnim >= 0 || DrinkActive() || g_omniActive || g_faceHold > 0;
     float align = g_lockSprintAlign * 0.017453293f;
     float diff = 0.f, goal = moveYaw;
@@ -1383,13 +1429,20 @@ static void LockSprintTick(BYTE* ctx, float dt, void* p3) {
 
     if (g_lsState != kLsIdle && (!locked || !ground || busy))
         LsSet(kLsIdle, !locked ? "target lost" : !ground ? "left the ground" : "action");
+    // v3.7c fix (player 17.11: "running left, pressed back, the character kept running left"; log: lock-on during a
+    // sprint at 107141 ms, then for 2.3 s the move vector stayed at 156 deg while A / S / D changed). While the switch
+    // is held back the game is in the free mode, where a sprint runs along the facing (the input ctx vector follows
+    // it) and the game's turn routine steers the facing to the stick. The DLL's sprint states held the facing on that
+    // vector every physics step, so nothing could turn the character. In the free mode the game steers the sprint;
+    // the DLL only turns back to the target after it (turn out below).
+    if (g_lsDeferLock && wantTurn && g_lsState != kLsIdle) LsSet(kLsIdle, "lock switch held: the game steers the sprint");
     // v3.5: the switch is still held (the sprint ended, or an action such as a roll ran in the free mode): turn back to
     // the target first, so the switch comes with a small angle and the game has no turn clip to play.
     if (g_lsDeferLock && g_lsState == kLsIdle && locked && ground && !busy && !wantTurn) LsSet(kLsTurnOut, "lock switch pending");
     switch (g_lsState) {
     case kLsIdle:
     case kLsTurnOut:
-        if (locked && ground && !busy && wantTurn) {
+        if (locked && ground && !busy && wantTurn && !g_lsDeferLock) {
             if (sprint && alignedNow) LsSet(kLsSprint, "sprint toward the stick");
             else if (!alignedNow || g_lsState == kLsTurnOut) LsSet(kLsTurnIn, sprint ? "sprint away from the target"
                                                                                        : "key held, turning early");
@@ -1418,6 +1471,7 @@ static void LockSprintTick(BYTE* ctx, float dt, void* p3) {
             else if (now - g_lsSince > 1000) LsSet(kLsIdle, "turn out timeout");
         }
     }
+    if (g_lsState != kLsIdle) g_lsDllActiveAt = now ? now : 1;  // v3.7c (see g_tcFromDll)
     // v3.2 speed floor: run speed through the turn, then up to kLsFloorSprint in the first kLsFloorSprintMs of the sprint
     if (g_lsFloor > 0.f) {
         if (!moving || (g_lsState != kLsTurnIn && g_lsState != kLsSprint)) {
@@ -4466,6 +4520,166 @@ static void InstallLockModeSetHook() {
     Log("lock-on sprint: lock mode setter hook @0x37AC00: %s", MH_StatusToString(st));
 }
 
+// v3.7: turn dispatcher FUN_14039f5c0 (see g_lockTurnClipOff). The third argument is a float (the frame time, xmm2),
+// passed through as the game's turn routines take it.
+using TurnDispatchFn = void*(__fastcall*)(BYTE* t, void* out, float dt, void* p4, UINT64 p5, UINT64 p6, char p7);
+static TurnDispatchFn g_origTurnDispatch = nullptr;
+
+// The lock window: a mode switch made with the stick held within LockOnTurnClipWindow ms, the lock switch held back
+// (v3.5) or the DLL's own sprint turn running.
+static bool TcLockContext(DWORD now) {
+    return (g_tcSwitchAt && now - g_tcSwitchAt < g_lockTurnClipWindowMs) || g_lsDeferLock || g_lsState != kLsIdle;
+}
+
+// Starts the lock window on a movement mode switch (ChrCtrl+0x21D) made with the stick held; called from both turn
+// hooks, whichever sees the switch first in the frame. Returns whether the stick is held.
+static bool TcNoteMode(BYTE* p3, DWORD now) {
+    BYTE mode = p3[0x21D];
+    bool stick = g_axis[0] * g_axis[0] + g_axis[1] * g_axis[1] >= 0.09f;
+    if (mode != g_tcLastMode) {
+        if (g_tcLastMode != 0xFF && stick) {
+            g_tcSwitchAt = now ? now : 1;
+            g_tcFromDll = g_lsDllActiveAt && now - g_lsDllActiveAt < kTcDllRecentMs;
+            Log("[%7lu ms] turn clips: mode switch %d -> %d with the stick held, clips off for %lu ms (state %s, "
+                "lock switch held %d, during the DLL sprint %d)", now - g_t0, g_tcLastMode, mode, g_lockTurnClipWindowMs,
+                LsName(g_lsState), g_lsDeferLock ? 1 : 0, g_tcFromDll ? 1 : 0);
+        }
+        g_tcLastMode = mode;
+    }
+    return stick;
+}
+
+// For the player's turn object in the window: saves the five clip IDs to saved[] and sets them to -1.
+static bool TcClipsOff(BYTE* t, int* saved) {
+    __try {
+        BYTE* p3 = g_lsP3;
+        if (!p3 || *reinterpret_cast<BYTE**>(t + 0x10) != p3) return false;
+        int* ids = reinterpret_cast<int*>(t + 0x18);
+        DWORD now = GetTickCount();
+        static bool idsLogged = false;
+        if (!idsLogged) {
+            idsLogged = true;
+            Log("[%7lu ms] turn clips: player turn object %p, clips left %d / %d, right %d / %d, free %d", now - g_t0,
+                t, ids[0], ids[2], ids[1], ids[3], ids[4]);
+        }
+        bool stick = TcNoteMode(p3, now);
+        bool window = g_tcSwitchAt && now - g_tcSwitchAt < g_lockTurnClipWindowMs;
+        if (!window && g_tcSwitchAt) {
+            g_tcSwitchAt = 0;
+            Log("[%7lu ms] turn clips: window over (%d calls with the clips off since the last line)", now - g_t0, g_tcCalls);
+            g_tcCalls = 0;
+        }
+        if (!stick || !(window || TcLockContext(now))) return false;
+        for (int i = 0; i < 5; ++i) {
+            saved[i] = ids[i];
+            ids[i] = -1;
+        }
+        ++g_tcCalls;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+// Puts the game's IDs back, except where the game itself wrote a new one during the call.
+static void TcClipsRestore(BYTE* t, const int* saved) {
+    __try {
+        int* ids = reinterpret_cast<int*>(t + 0x18);
+        for (int i = 0; i < 5; ++i)
+            if (ids[i] == -1) ids[i] = saved[i];
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+static void* __fastcall TurnDispatchDetour(BYTE* t, void* out, float dt, void* p4, UINT64 p5, UINT64 p6, char p7) {
+    int saved[5];
+    bool off = t && TcClipsOff(t, saved);
+    void* r = g_origTurnDispatch(t, out, dt, p4, p5, p6, p7);
+    if (off) TcClipsRestore(t, saved);
+    return r;
+}
+
+// v3.7b: FUN_14039f980(T, limit deg, &turn) = "the wanted facing changed by more than the limit" (the U-turn clips
+// 610 / 640 in FUN_140381fe0, see g_lsMoveYaw). Returns the game's answer with the low byte cleared when the DLL turns
+// a "yes" off.
+using BigTurnFn = UINT64(__fastcall*)(BYTE* t, float limitDeg, float* turn);
+static BigTurnFn g_origBigTurn = nullptr;
+
+// For the player: true when the game's "large turn" is not a real one (v3.7c): the DLL drives the facing (its sprint
+// states), or in the window after a mode switch made during them (the character faces the stick by design), or in the
+// window when the character has at most the game's limit left to turn (to the stick in the free mode, to the target
+// in the lock-on mode; v3.7b). Outside of these the game's U-turn stays (a stick turned back in a free run).
+static bool TcFalseUturn(BYTE* t, float limitDeg) {
+    __try {
+        BYTE* p3 = g_lsP3;
+        if (!p3 || *reinterpret_cast<BYTE**>(t + 0x10) != p3) return false;
+        DWORD now = GetTickCount();
+        TcNoteMode(p3, now);
+        bool window = g_tcSwitchAt && now - g_tcSwitchAt < g_lockTurnClipWindowMs;
+        bool dll = g_lsState != kLsIdle;
+        BYTE mode = p3[0x21D];
+        float yaw = 0.f, want = 0.f, left = -1.f;
+        bool haveYaw = false, haveWant = false;
+        if (BYTE* pos = ChrPosData()) {
+            yaw = *reinterpret_cast<float*>(pos + 0x04);
+            haveYaw = true;
+        }
+        if (mode == 0) {
+            haveWant = LockTargetYaw(p3, &want);
+        } else if (g_lsMoveAt && now - g_lsMoveAt < kTcStickKeepMs) {
+            want = g_lsMoveYaw;  // the last stick direction (the game's move vector is zero in the lock-off frame)
+            haveWant = true;
+        }
+        if (haveYaw && haveWant) left = fabsf(WrapPi(want - yaw)) * 57.29578f;
+        const char* why = dll                                       ? "the DLL turns the character"
+                        : window && g_tcFromDll                     ? "lock switch during the DLL sprint"
+                        : window && left >= 0.f && left <= limitDeg ? "already facing that way"
+                                                                    : nullptr;
+        if (why) ++g_tcUturnsOff;
+        static DWORD lastLog = 0;
+        if (now - lastLog >= 200) {
+            lastLog = now;
+            Log("[%7lu ms] turn clips: large turn (U-turn clip) %s%s%s: facing %.0f, %s %.0f, %.0f deg left (limit %.0f), "
+                "mode %d, state %s, window %d (switch during the DLL sprint %d), stick seen %ld ms ago, %d turned off "
+                "so far", now - g_t0, why ? "turned off (" : "kept", why ? why : "", why ? ")" : "", yaw * 57.29578f,
+                mode == 0 ? "target" : "stick", want * 57.29578f, left, limitDeg, mode, LsName(g_lsState),
+                window ? 1 : 0, g_tcFromDll ? 1 : 0, g_lsMoveAt ? static_cast<long>(now - g_lsMoveAt) : -1L,
+                g_tcUturnsOff);
+        }
+        return why != nullptr;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+static UINT64 __fastcall BigTurnDetour(BYTE* t, float limitDeg, float* turn) {
+    UINT64 r = g_origBigTurn(t, limitDeg, turn);
+    if ((r & 0xFF) && t && TcFalseUturn(t, limitDeg)) return r & ~0xFFull;
+    return r;
+}
+
+static void InstallBigTurnHook() {
+    static const BYTE kPrologue[] = {0x48, 0x89, 0x5C, 0x24, 0x10, 0x4C, 0x63, 0x89, 0x80, 0x01, 0x00, 0x00, 0x49, 0x8B, 0xD8};
+    auto target = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr)) + 0x39F980;
+    if (memcmp(target, kPrologue, sizeof(kPrologue)) != 0) {
+        Log("turn clips: unexpected prologue @0x39F980 (%02X %02X) - no U-turn check hook", target[0], target[1]);
+        return;
+    }
+    MH_STATUS st = MH_CreateHook(target, reinterpret_cast<void*>(&BigTurnDetour), reinterpret_cast<void**>(&g_origBigTurn));
+    if (st == MH_OK) st = MH_EnableHook(target);
+    if (st != MH_OK) g_origBigTurn = nullptr;
+    Log("turn clips: U-turn check hook @0x39F980: %s", MH_StatusToString(st));
+}
+
+static void InstallTurnDispatchHook() {
+    static const BYTE kPrologue[] = {0x40, 0x53, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x70, 0x0F, 0x29, 0x74, 0x24, 0x60};
+    auto target = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr)) + 0x39F5C0;
+    if (memcmp(target, kPrologue, sizeof(kPrologue)) != 0) {
+        Log("turn clips: unexpected prologue @0x39F5C0 (%02X %02X) - no turn dispatcher hook", target[0], target[1]);
+        g_lockTurnClipOff = false;
+        return;
+    }
+    MH_STATUS st = MH_CreateHook(target, reinterpret_cast<void*>(&TurnDispatchDetour), reinterpret_cast<void**>(&g_origTurnDispatch));
+    if (st == MH_OK) st = MH_EnableHook(target);
+    if (st != MH_OK) { g_origTurnDispatch = nullptr; g_lockTurnClipOff = false; }
+    Log("turn clips: turn dispatcher hook @0x39F5C0: %s", MH_StatusToString(st));
+}
+
 static void InstallChrPhysStepHook() {
     static const BYTE kPrologue[] = {0x40, 0x57, 0x48, 0x81, 0xEC, 0x80, 0x00, 0x00, 0x00, 0x0F, 0x29, 0x7C, 0x24, 0x50};
     auto target = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr)) + 0x2BB150;
@@ -4531,6 +4745,12 @@ static DWORD WINAPI InitThread(LPVOID) {
     if (g_lockSprintSpeedHold || g_landDropBridge || (g_landRunOn && g_landRunRootHoldMs)) InstallChrVelHook();
     if (g_lockSprintFreeOn && g_lockSprintLockGuard) InstallLockModeSetHook();
     else g_lockSprintLockGuard = false;
+    if (g_lockSprintFreeOn && g_lockTurnClipOff) {
+        InstallTurnDispatchHook();
+        if (g_lockTurnClipOff) InstallBigTurnHook();  // needs the dispatcher hook (the lock window starts there)
+    } else {
+        g_lockTurnClipOff = false;
+    }
     if (kDevDiag) InstallSubmitProbes();
     InstallDrinkSlowWalk();
     return 0;
