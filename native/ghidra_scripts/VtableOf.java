@@ -15,7 +15,7 @@ public class VtableOf extends GhidraScript {
         String[] args = getScriptArgs();
         Memory mem = currentProgram.getMemory();
         long base = currentProgram.getImageBase().getOffset();
-        String[] slots = args[1].split(",");
+        String[] slots = args[1].split("[,;]");  // ";" too: commas get lost through cmd
         try (PrintWriter w = new PrintWriter(args[0], "UTF-8")) {
             for (int i = 2; i < args.length; i++) {
                 Address name = mem.findBytes(mem.getMinAddress(), (args[i] + "\0").getBytes("US-ASCII"), null, true, monitor);

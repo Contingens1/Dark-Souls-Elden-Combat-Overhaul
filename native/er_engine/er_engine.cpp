@@ -10,6 +10,7 @@
 #include <cfloat>
 #include <vector>
 #include <xinput.h>
+#include <intrin.h>
 #include "MinHook.h"
 
 static HMODULE g_real = nullptr;
@@ -603,6 +604,9 @@ static DWORD g_lsIdleAt = 0;       // tick of the last return to idle (diag: loc
 // lock-off) made with the stick held, or while the DLL holds the lock switch back (v3.5) or runs its sprint turn.
 static bool g_lockTurnClipOff = false;        // [Roll] LockOnTurnClipOff
 static DWORD g_lockTurnClipWindowMs = 800;    // [Roll] LockOnTurnClipWindow
+static bool g_lockTargetGuard = false;        // [Roll] LockOnTargetGuard (v3.8, see TargetSetDetour)
+static float g_lockRange = 0.f;               // [Roll] LockOnRange (m, v3.8c; 0 = the game's 15 m)
+static void TargetGuardTick();                // below, with the lock target guard hooks
 static BYTE g_tcLastMode = 0xFF;              // movement mode seen in the last call for the player
 static DWORD g_tcSwitchAt = 0;                // tick of the last mode switch made with the stick held (0 = none)
 static int g_tcCalls = 0;                     // diag: calls with the clips off since the last log line
@@ -879,6 +883,9 @@ static void LoadConfigIni() {
     g_lockSprintLockGuard = GetPrivateProfileIntA("Roll", "LockOnSprintLockGuard", 0, iniPath) != 0;
     g_lockTurnClipOff = GetPrivateProfileIntA("Roll", "LockOnTurnClipOff", 0, iniPath) != 0;
     g_lockTurnClipWindowMs = GetPrivateProfileIntA("Roll", "LockOnTurnClipWindow", 800, iniPath);
+    g_lockTargetGuard = GetPrivateProfileIntA("Roll", "LockOnTargetGuard", 0, iniPath) != 0;
+    g_lockRange = static_cast<float>(GetPrivateProfileIntA("Roll", "LockOnRange", 0, iniPath));
+    Log("config: LockOnTargetGuard=%d LockOnRange=%.0f m", g_lockTargetGuard ? 1 : 0, g_lockRange);
     Log("config: LockOnSprintTurnIn=%.0f TurnOut=%.0f deg/s Align=%.0f deg Accel=%.0f deg/s2 TurnStart=%lu ms "
         "BackAngle=%.0f deg SpeedHold=%d LockGuard=%d TurnClipOff=%d (window %lu ms)",
         g_lockSprintTurnIn, g_lockSprintTurnOut, g_lockSprintAlign, g_lockSprintTurnAccel, g_lockSprintTurnStartMs,
@@ -2058,6 +2065,7 @@ static void __fastcall InputDetour(void* ctx, float dt, void* p3) {
     GroundSpeedSample();
     SuppressSprintWhileDrinking(static_cast<BYTE*>(ctx));
     LockSprintTick(static_cast<BYTE*>(ctx), dt, p3);
+    TargetGuardTick();
 #if ER_DIAG == 1
     CamProbeTick(static_cast<BYTE*>(ctx), dt, p3);
 #endif
@@ -4899,6 +4907,253 @@ static void InstallBigTurnHook() {
     Log("turn clips: U-turn check hook @0x39F980: %s", MH_StatusToString(st));
 }
 
+// --- Lock-on target guard ([Roll] LockOnTargetGuard, v3.8, 2026-11-17) --------------------------------------------
+// Player tests 17.11 (pad, several enemies): the target switched by itself, with the right stick at rest, between
+// two enemies 10.9 m apart, back and forth (once 4 times in 200 ms), during the lock-on sprint at 11-12 m, then the
+// lock was dropped; standing still, a flick of the right stick moved the lock to the other enemy and the game took it
+// back to the faced one 3 frames later. The camera swung with every switch (the "camera jump" when sprinting off a
+// lock). A higher LockCamParam range (20 m) did not change it. Player: on the pad the target may change only by the
+// right stick, on the mouse by a clear mouse movement.
+// Every lock target change goes through PadManipulator::SetLockTarget (vtable 0x14132F1E8 slot +0x48, RVA 0x391970:
+// [manip+0x220] = handle; the only writer besides the constructor). The hook lets through: a new lock (from -1), a
+// release (to -1), the same handle, a switch away from a dead target (TgTargetDead: character list, HP chr+0x3E8),
+// and one switch per camera input deflection (right stick / mouse from rest, read from the
+// camera axis getters 0x1A3940 / 0x1A3990 and the pad's raw right stick). Any other switch is refused (the handle stays).
+using TargetSetFn = void(__fastcall*)(BYTE* manip, int handle);
+static TargetSetFn g_origTargetSet = nullptr;
+static AxisFn g_origCamAxisX = nullptr, g_origCamAxisY = nullptr;
+static float g_camAxisIn[2] = {};
+static DWORD g_camAxisAt = 0;          // last call of a camera axis getter
+static bool g_tgActive = false;        // camera input deflected
+static DWORD g_tgRestSince = 0;        // camera input at rest since (0 = active)
+static bool g_tgSwitchUsed = false;    // the switch of this deflection was used
+static int g_tgRefused = 0;
+static DWORD g_tgLogAt = 0;
+constexpr float kTgPadOn = 0.5f, kTgPadRest = 0.25f;   // raw right stick (XInput, -1..1)
+constexpr float kTgAxisOn = 0.2f, kTgAxisRest = 0.05f; // camera axis getters (pad or mouse, game scale)
+constexpr DWORD kTgRestMs = 60;
+
+static float __fastcall CamAxisXDetour(void* p) {
+    float v = g_origCamAxisX(p);
+    g_camAxisIn[0] = v;
+    DWORD t = GetTickCount();
+    g_camAxisAt = t ? t : 1;
+    return v;
+}
+static float __fastcall CamAxisYDetour(void* p) {
+    float v = g_origCamAxisY(p);
+    g_camAxisIn[1] = v;
+    DWORD t = GetTickCount();
+    g_camAxisAt = t ? t : 1;
+    return v;
+}
+
+static void TgRightStick(float* rx, float* ry) {
+    using GetStateFn = DWORD(WINAPI*)(DWORD, XINPUT_STATE*);
+    static GetStateFn getState = [] {
+        HMODULE m = GetModuleHandleA("xinput1_3.dll");
+        return m ? reinterpret_cast<GetStateFn>(GetProcAddress(m, "XInputGetState")) : nullptr;
+    }();
+    XINPUT_STATE xs{};
+    *rx = *ry = 0.f;
+    if (getState && getState(0, &xs) == ERROR_SUCCESS) {
+        *rx = xs.Gamepad.sThumbRX / 32767.f;
+        *ry = xs.Gamepad.sThumbRY / 32767.f;
+    }
+}
+
+// v3.8c (test of v3.8b 17.11: the hook refused every switch - the game asked for one every frame - yet the lock-on
+// point and the camera still went to the other enemy, so the game keeps its target in the lock target manager too and
+// the manipulator handle is only a copy). The manager LockTgtManImp ([exe+0x1C7A138], built by FUN_14040AD70, debug
+// menu FUN_14040D7D0 names its fields): +0x1571 m_enableAutoLockChange (1), +0x152C ChrLockRangeMaxRadius (15),
+// +0x1530 ChrAllRangeLockRadius (4), +0x1534 ChrFrontRangeLockHalfAng (30 deg), +0x1538 ChrFrontRangeLockRadius (15),
+// +0x1548 CamAllRangeLockRadius (0), +0x154C camFrontRangeLockHalfAng (60 deg), +0x1550 CamFrontRangeLockRadius (15).
+// Sprinting away from the target puts it behind the character, so only the camera's front cone holds it: 15 m from
+// the camera, which sits ~3.8 m behind the character = the 11-12 m where the game switched and dropped the lock (the
+// LockCamParam range did not change it). The guard switches the auto lock change off in the manager every frame and
+// raises the range (LockOnRange) from the camera and from the character; the SetLockTarget hook only logs.
+constexpr ULONG_PTR kLockTgtManRva = 0x1C7A138;
+static bool g_tgMgrLogged = false;
+
+static void TargetManagerApply() {
+    __try {
+        auto base = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr));
+        BYTE* m = *reinterpret_cast<BYTE**>(base + kLockTgtManRva);
+        if (reinterpret_cast<ULONG_PTR>(m) < 0x10000) return;
+        auto F = [m](int o) -> float& { return *reinterpret_cast<float*>(m + o); };
+        if (!g_tgMgrLogged) {
+            g_tgMgrLogged = true;
+            Log("lock target manager %p: auto change %u limit %u manual %u, max %.1f, chr all %.1f front %.1f (%.0f deg), "
+                "cam all %.1f front %.1f (%.0f deg), bonus %.1f", m, m[0x1571], m[0x1572], m[0x156F], F(0x152C),
+                F(0x1530), F(0x1538), F(0x1534) * 57.29578f, F(0x1548), F(0x1550), F(0x154C) * 57.29578f, F(0x1520));
+        }
+        m[0x1571] = 0;
+        if (g_lockRange > 0.f) {
+            if (F(0x152C) < g_lockRange) F(0x152C) = g_lockRange;
+            if (F(0x1538) < g_lockRange) F(0x1538) = g_lockRange;
+            if (F(0x1550) < g_lockRange) F(0x1550) = g_lockRange;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
+// v3.8d (test of v3.8c 17.11: range up to ~17 m OK, a kill now releases the lock - player: fine, as ER without
+// auto-lock - but at the new range limit the lock still jumped to another enemy). The manager update FUN_14040B0F0
+// rates every candidate in range each frame (FUN_14040BE00, called at 0x14040BBBA) and takes the best; the current
+// target (flag 0x20) gets the top rating (3.37e38) while locked, but only while it is in range. Out of range it drops
+// out and the best other one wins: that is the switch. The manual switch (FUN_14040C2C0) only moves flag 0x20 to the
+// new candidate (no rating). So while the lock is held (manager +0x1430 and last frame +0x1431), the rating returns
+// -FLT_MAX (the selection needs more than that) at that one call site: only the current target can be taken, and when
+// it leaves the range the game releases the lock its own way (puVar29 == 0 branch).
+using TgtScoreFn = float(__fastcall*)(BYTE* mgr, float a, float b);
+static TgtScoreFn g_origTgtScore = nullptr;
+static ULONG_PTR g_tgtScoreSelRet = 0;  // exe+0x40BBBF, after the call in the selection loop
+static int g_tgtScoreBlocked = 0;
+static BYTE g_tgMgrLocked = 0;
+
+static float __fastcall TgtScoreDetour(BYTE* mgr, float a, float b) {
+    float s = g_origTgtScore(mgr, a, b);
+    if (g_lockTargetGuard && reinterpret_cast<ULONG_PTR>(_ReturnAddress()) == g_tgtScoreSelRet) {
+        __try {
+            if (mgr[0x1430] && mgr[0x1431]) {
+                ++g_tgtScoreBlocked;
+                return -3.402823466e+38f;
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
+    return s;
+}
+
+// Every frame (input handler): camera input deflected / at rest; a new deflection re-arms the one switch.
+static void TargetGuardTick() {
+    if (!g_lockTargetGuard) return;
+    TargetManagerApply();
+    __try {
+        BYTE* m = *reinterpret_cast<BYTE**>(reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr)) + kLockTgtManRva);
+        if (reinterpret_cast<ULONG_PTR>(m) >= 0x10000) {
+            BYTE locked = m[0x1430];
+            if (g_tgMgrLocked && !locked)
+                Log("[%7lu ms] lock target guard: lock released by the game (%d rival ratings blocked while locked)",
+                    GetTickCount() - g_t0, g_tgtScoreBlocked);
+            if (!locked) g_tgtScoreBlocked = 0;
+            g_tgMgrLocked = locked;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    DWORD now = GetTickCount();
+    float rx, ry;
+    TgRightStick(&rx, &ry);
+    float pad = sqrtf(rx * rx + ry * ry);
+    bool fresh = g_camAxisAt && now - g_camAxisAt < 100;
+    float ax = fresh ? sqrtf(g_camAxisIn[0] * g_camAxisIn[0] + g_camAxisIn[1] * g_camAxisIn[1]) : 0.f;
+    bool on = pad >= kTgPadOn || ax >= kTgAxisOn;
+    bool rest = pad < kTgPadRest && ax < kTgAxisRest;
+    if (rest) {
+        if (!g_tgRestSince) g_tgRestSince = now ? now : 1;
+        if (g_tgActive && now - g_tgRestSince >= kTgRestMs) g_tgActive = false;
+    } else {
+        g_tgRestSince = 0;
+    }
+    if (on && !g_tgActive) {
+        g_tgActive = true;
+        g_tgSwitchUsed = false;
+    }
+}
+
+// 1 = the character with this handle (ChrIns+8, as FUN_140353B70 passes it) is dead, 0 = alive, -1 = not found.
+// v3.8 test 17.11: FUN_140371B50 takes network IDs, not these handles (0x10028055); used as the lookup it found
+// nothing, so every switch counted as "old target gone" and went through. The character list is scanned instead
+// (WorldChrMan +0x28 / +0x30 blocks, as ScanEnemyAggro).
+static int TgTargetDead(int handle) {
+    __try {
+        auto base = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr));
+        BYTE* w = *reinterpret_cast<BYTE**>(base + 0x1C77E50);
+        if (!w) return -1;
+        int blocks = *reinterpret_cast<int*>(w + 0x28);
+        BYTE* arr = *reinterpret_cast<BYTE**>(w + 0x30);
+        if (blocks <= 0 || blocks > 64 || reinterpret_cast<ULONG_PTR>(arr) < 0x10000) return -1;
+        for (int b = 0; b < blocks; b++) {
+            BYTE* blk = arr + b * 0xE8;
+            int n = *reinterpret_cast<int*>(blk + 0x48);
+            BYTE* ent = *reinterpret_cast<BYTE**>(blk + 0x50);
+            if (n <= 0 || n > 2048 || reinterpret_cast<ULONG_PTR>(ent) < 0x10000) continue;
+            for (int i = 0; i < n; i++) {
+                BYTE* chr = *reinterpret_cast<BYTE**>(ent + i * 0x38);
+                if (reinterpret_cast<ULONG_PTR>(chr) < 0x10000) continue;
+                if (*reinterpret_cast<int*>(chr + 8) != handle) continue;
+                return *reinterpret_cast<int*>(chr + 0x3E8) <= 0 ? 1 : 0;
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return -1;
+}
+
+static void __fastcall TargetSetDetour(BYTE* manip, int handle) {
+    int cur = -1;
+    __try { cur = *reinterpret_cast<int*>(manip + 0x220); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    if (!g_lockTargetGuard || handle == cur || handle == -1 || cur == -1) { g_origTargetSet(manip, handle); return; }
+    DWORD now = GetTickCount();
+    float rx, ry;
+    TgRightStick(&rx, &ry);
+    const char* why = nullptr;
+    int dead = TgTargetDead(cur);
+    if (dead == 1) why = "old target dead";
+    else if (g_tgActive && !g_tgSwitchUsed) { why = "camera input"; g_tgSwitchUsed = true; }
+    // not found (-1) counts as alive: the switch needs the camera input like any other (logged below)
+    if (why) {
+        Log("[%7lu ms] lock target guard: switch %08X -> %08X let through (%s), right stick %.2f %.2f, cam axis %.2f %.2f",
+            now - g_t0, cur, handle, why, rx, ry, g_camAxisIn[0], g_camAxisIn[1]);
+        g_origTargetSet(manip, handle);
+        return;
+    }
+    // v3.8c: logged only - refusing here left the manager's target (and the camera) on the other enemy
+    g_origTargetSet(manip, handle);
+    ++g_tgRefused;
+    if (now - g_tgLogAt >= 200) {
+        Log("[%7lu ms] lock target guard: switch %08X -> %08X WITHOUT camera input (%d since the last line), old target %s, deflected %d "
+            "used %d, right stick %.2f %.2f, cam axis %.2f %.2f, DLL state %d", now - g_t0, cur, handle, g_tgRefused,
+            dead == 0 ? "alive" : "not found", g_tgActive ? 1 : 0, g_tgSwitchUsed ? 1 : 0, rx, ry, g_camAxisIn[0],
+            g_camAxisIn[1], static_cast<int>(g_lsState));
+        g_tgLogAt = now;
+        g_tgRefused = 0;
+    }
+}
+
+static void InstallTargetGuardHooks() {
+    auto base = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr));
+    static const BYTE kSetPro[] = {0x89, 0x91, 0x20, 0x02, 0x00, 0x00, 0xC3};
+    static const BYTE kAxisPro[] = {0x40, 0x53, 0x48, 0x83, 0xEC, 0x30, 0x0F, 0x29, 0x74, 0x24, 0x20};
+    BYTE* set = base + 0x391970;
+    if (memcmp(set, kSetPro, sizeof(kSetPro)) != 0 || memcmp(base + 0x1A3940, kAxisPro, sizeof(kAxisPro)) != 0 ||
+        memcmp(base + 0x1A3990, kAxisPro, sizeof(kAxisPro)) != 0) {
+        Log("lock target guard: unexpected bytes @0x391970 / 0x1A3940 / 0x1A3990 - off");
+        g_lockTargetGuard = false;
+        return;
+    }
+    MH_STATUS a = MH_CreateHook(base + 0x1A3940, reinterpret_cast<void*>(&CamAxisXDetour), reinterpret_cast<void**>(&g_origCamAxisX));
+    if (a == MH_OK) a = MH_EnableHook(base + 0x1A3940);
+    MH_STATUS b = MH_CreateHook(base + 0x1A3990, reinterpret_cast<void*>(&CamAxisYDetour), reinterpret_cast<void**>(&g_origCamAxisY));
+    if (b == MH_OK) b = MH_EnableHook(base + 0x1A3990);
+    MH_STATUS s = MH_CreateHook(set, reinterpret_cast<void*>(&TargetSetDetour), reinterpret_cast<void**>(&g_origTargetSet));
+    if (s == MH_OK) s = MH_EnableHook(set);
+    if (s != MH_OK) { g_origTargetSet = nullptr; g_lockTargetGuard = false; }
+    Log("lock target guard: SetLockTarget hook @0x391970: %s, camera axes @0x1A3940 / 0x1A3990: %s / %s",
+        MH_StatusToString(s), MH_StatusToString(a), MH_StatusToString(b));
+    // v3.8d: target rating in the manager's selection loop (call E8 at 0x40BBBA -> 0x40BE00)
+    static const BYTE kScorePro[] = {0xF3, 0x0F, 0x11, 0x4C, 0x24, 0x10, 0x48, 0x83, 0xEC, 0x18, 0xF3, 0x0F, 0x10, 0x99, 0x2C, 0x15};
+    static const BYTE kCallSite[] = {0xE8, 0x41, 0x02, 0x00, 0x00};
+    if (memcmp(base + 0x40BE00, kScorePro, sizeof(kScorePro)) != 0 || memcmp(base + 0x40BBBA, kCallSite, sizeof(kCallSite)) != 0) {
+        Log("lock target guard: unexpected bytes @0x40BE00 / 0x40BBBA - no rating hook (the lock can still jump)");
+        return;
+    }
+    g_tgtScoreSelRet = reinterpret_cast<ULONG_PTR>(base) + 0x40BBBF;
+    MH_STATUS r = MH_CreateHook(base + 0x40BE00, reinterpret_cast<void*>(&TgtScoreDetour), reinterpret_cast<void**>(&g_origTgtScore));
+    if (r == MH_OK) r = MH_EnableHook(base + 0x40BE00);
+    Log("lock target guard: target rating hook @0x40BE00: %s", MH_StatusToString(r));
+}
+
 static void InstallTurnDispatchHook() {
     static const BYTE kPrologue[] = {0x40, 0x53, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x70, 0x0F, 0x29, 0x74, 0x24, 0x60};
     auto target = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr)) + 0x39F5C0;
@@ -4984,6 +5239,7 @@ static DWORD WINAPI InitThread(LPVOID) {
     } else {
         g_lockTurnClipOff = false;
     }
+    if (g_lockTargetGuard) InstallTargetGuardHooks();
     if (kDevDiag) InstallSubmitProbes();
     InstallDrinkSlowWalk();
     return 0;
