@@ -39,9 +39,15 @@ The mod is under development. Below are the known issues that do not work proper
 * **Jumping through walls (intentional, kept for now).** A jump can start next to a wall and pass through it. This allows interesting skips, so it is not blocked for now.
 * **Block in a sprint looks odd (intentional, kept for now).** The ER sprint animation is played on the upper body, which looks unnatural.
 * **Camera:** monsters and the environment can block the camera, and the camera sometimes rises up sharply on its own. Fixes are planned.
-* **Sprint in every direction while locked on (work in progress):** the sprint start is still a bit stiff, the character slows down for a moment during the turn. A fix is on the way.
+* **Sprint in every direction while locked on (work in progress):** since 0.5.6 the character no longer slows down during the turn or turns around when the lock is released, but the movement still needs polish.
 * **Character freeze (rare):** after a roll, the character can stand without animation for a few seconds even while the stick is pushed. It usually ends with a hit or another roll. The cause is not known yet. The package has an automatic unlock attempt, which may not work.
 
+
+## Planned
+
+* **Seamless Co-op integration:** checking whether and how the mod can work together with Seamless Co-op for Dark Souls Remastered.
+* **Camera:** the camera passing through enemies instead of being blocked by them and pulling away, and no rising up on its own.
+* **More bosses** with moves from Elden Ring, Nightreign and Dark Souls III.
 
 ## Repository layout
 

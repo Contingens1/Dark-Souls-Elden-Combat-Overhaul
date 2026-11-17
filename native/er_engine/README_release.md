@@ -44,6 +44,23 @@ Aktualizacja zmienia wyłącznie pliki w folderze moda — nie dotyka gry ani Mo
 - **Graj wyłącznie offline.** Mod zmienia działanie gry w pamięci — gra online grozi banem. Mod nie ma własnej blokady sieci; przed uruchomieniem przełącz Steama w tryb offline albo ustaw w grze start w trybie offline.
 - Na innej wersji `DarkSoulsRemastered.exe` hooki się nie założą i mechaniki z DLL nie będą działać (log: `bin\er_engine.log`).
 
+## Nowe w 0.5.6
+
+Wersja testowa (pre-release).
+
+- **Namierzanie bez przeskoków.** Cel zmienia się tylko po ruchu prawej gałki albo myszy. Gra nie przeskakuje już sama na innego wroga (wcześniej najczęściej w sprincie przy kilku przeciwnikach, razem z kamerą). Gdy cel wyjdzie poza zasięg albo zginie, namierzenie się zwalnia, jak w Elden Ringu bez auto-namierzania. Zasięg namierzenia wynosi 20 m (w grze 15 m, a przy sprincie od celu puszczało już przy 11–12 m). Ustawienia: `LockOnTargetGuard` i `LockOnRange` w sekcji `[Roll]`.
+- **Sprint przy namierzeniu** *(work in progress)*:
+  - postać nie zwalnia przy obrocie;
+  - przy gałce w bok lub po skosie biegnie bokiem do startu sprintu, jak w Elden Ringu;
+  - namierzenie włączone w trakcie sprintu nie przerywa go;
+  - przy włączaniu i wyłączaniu namierzenia w ruchu nie ma animacji zawrotu, postać obraca się płynnie.
+- **Przycisk uniku osobno dla klawiatury i myszy oraz dla pada.** Po przejściu z jednego na drugie unik i sprint przy namierzeniu działają od pierwszego wciśnięcia.
+- **Skok:**
+  - skok w sprincie działa też na klawiaturze: po lądowaniu sprint leci dalej;
+  - lądowanie w bieg lub sprint bez ściągania postaci w dół, bez przeskoku rąk i bez szarpnięć prędkości;
+  - nie ma już pyłu i dźwięku lądowania z DS1 przy lądowaniu w biegu;
+  - lekkie lądowanie (postać staje) dopiero od 3,5 m spadania (wcześniej od 2 m).
+
 ## Nowe w 0.5.5
 
 Wersja testowa (pre-release).

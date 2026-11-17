@@ -19,8 +19,8 @@
 # uncommitted experiments; its folder must hold the headers it includes.
 # Usage: powershell -ExecutionPolicy Bypass -File native\er_engine\build_release.ps1 [-Version 0.4.0] [-DllSource <path>] [-SkipInstallerTest]
 param(
-    [string]$Version = '0.5.5',
-    [string]$Repo = 'Contingens1/ER-Inspired_DSR_Remake',   # GitHub repo whose latest release setup\Update.ps1 checks
+    [string]$Version = '0.5.6',
+    [string]$Repo = 'Contingens1/Dark-Souls-Elden-Combat-Overhaul',   # GitHub repo whose latest release setup\Update.ps1 checks
     [string]$DllSource = '',
     [switch]$SkipInstallerTest
 )

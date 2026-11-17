@@ -39,8 +39,14 @@ Mod jest w trakcie rozwoju. Poniżej to, co jest znane i jeszcze nie działa jak
 * **Skok przez ścianę (zamierzone, na razie zostaje).** Skok można zacząć przy ścianie i przeniknąć przez nią. Pozwala to na ciekawe skipy, więc na razie nie jest blokowane.
 * **Blok bronią w sprincie wygląda śmiesznie (zamierzone, na razie zostaje).** Animacja sprintu z ER jest na górnej części ciała, co wygląda nienaturalnie.
 * **Kamera:** moby i otoczenie potrafią zasłaniać kamerę, a kamera czasem sama mocno unosi się w górę. Jest to w planie poprawek.
-* **Sprint w każdą stronę przy namierzeniu (work in progress):** start sprintu jest jeszcze trochę sztywny, przy obrocie postać na chwilę zwalnia. Poprawka jest w drodze.
+* **Sprint w każdą stronę przy namierzeniu (work in progress):** od 0.5.6 bez zwalniania przy obrocie i bez zawrotek przy zdjęciu namierzenia, ale ruch wymaga jeszcze dopracowania.
 * **Zawieszenie postaci (rzadkie):** po przewrocie postać może przez kilka sekund stać bez animacji, mimo że gałka jest wychylona. Kończy się to zwykle trafieniem albo kolejnym przewrotem. Przyczyna nie jest jeszcze znana. Paczka ma automatyczną próbę odblokowania, która może nie zadziałać.
+
+## W planie
+
+* **Integracja z Seamless Co-op:** sprawdzenie, czy i jak mod może działać razem z Seamless Co-op dla Dark Souls Remastered.
+* **Kamera:** kamera przechodząca przez wrogów zamiast zasłaniania ekranu i odjeżdżania od nich, bez samoczynnego unoszenia się.
+* **Kolejni bossowie** z ruchami z Elden Ringa, Nightreign i Dark Souls III.
 
 ## Architektura repozytorium
 

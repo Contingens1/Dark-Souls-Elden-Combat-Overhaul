@@ -44,6 +44,23 @@ An update changes only the files in the mod folder — it does not touch the gam
 - **Play offline only.** The mod changes how the game works in memory — online play risks a ban. The mod has no network block of its own; before launching, switch Steam to offline mode or set the game to start offline.
 - On a different version of `DarkSoulsRemastered.exe` the hooks will not install and the DLL mechanics will not work (log: `bin\er_engine.log`).
 
+## New in 0.5.6
+
+Test version (pre-release).
+
+- **Lock-on without target jumps.** The target changes only when you move the right stick or the mouse. The game no longer switches to another enemy on its own; before, this happened mostly while sprinting near several enemies and took the camera with it. When the target leaves the range or dies, the lock is released, as in Elden Ring without auto-lock. The lock-on range is 20 m. The game uses 15 m, and while sprinting away the lock was already lost at 11–12 m. Settings: `LockOnTargetGuard` and `LockOnRange` in `[Roll]`.
+- **Sprint while locked on** *(work in progress)*:
+  - no slowdown during the turn;
+  - with the stick to the side or diagonal, the character strafes until the sprint starts, as in Elden Ring;
+  - locking on during a sprint keeps the sprint going;
+  - no turn-around animation when locking on or off while moving; the character turns smoothly.
+- **Separate roll key for keyboard / mouse and for the pad.** After switching between them, the roll and the locked-on sprint work from the first press.
+- **Jump:**
+  - a sprint jump also works on the keyboard, and the sprint goes on after the landing;
+  - landing into a run or sprint without the body being pulled down, without an arm jump and without speed jerks;
+  - no DS1 landing dust and sound when landing into a run;
+  - the light landing, where the character stops, starts from 3.5 m of fall instead of 2 m.
+
 ## New in 0.5.5
 
 Test version (pre-release).
