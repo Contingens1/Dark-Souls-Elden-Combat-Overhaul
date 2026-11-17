@@ -343,6 +343,11 @@ static bool g_keyDown[kKeyCodes];
 static bool g_keyEdgeDown[kKeyCodes], g_keyEdgeUp[kKeyCodes];
 static DWORD g_keyDownAt[kKeyCodes];
 static int g_rollKey = -1;
+// Learned roll / sprint key per device: [0] keyboard / mouse (VK), [1] pad (256 + XInput bit; default B = bit 13, the
+// game's default pad roll). g_rollKey is the one pressed last (PollKeys). Player test 17.11: the file held the mouse
+// button 0x006 from a keyboard session, so on the pad the B presses were not the roll key until three rolls taught it
+// again (157 s): locked-on rolls went out on the press and the lock-on sprint did not start.
+static int g_rollKeyDev[2] = {-1, 256 + 13};
 static int g_rollVotes[kKeyCodes];
 static DWORD g_rollPendingUntil = 0;
 static char g_rollKeyPath[MAX_PATH];
@@ -953,6 +958,16 @@ static void PollKeys() {
             if (kDiag) Log("[%7lu ms] klawisz 0x%03X w gore po %lu ms | osie %.2f %.2f", now - g_t0, c, now - g_keyDownAt[c], g_axis[0], g_axis[1]);
         }
     }
+    // The roll key follows the device: a press of the other device's learned key makes it the roll key in the same
+    // frame, before the input handler (LockOnSprintPostInput defers the locked-on roll on that very press).
+    for (int d = 0; d < 2; ++d) {
+        int k = g_rollKeyDev[d];
+        if (k > 0 && k < kKeyCodes && g_keyEdgeDown[k] && g_rollKey != k) {
+            if (kDiag) Log("[%7lu ms] roll key: 0x%03X -> 0x%03X (%s)", now - g_t0, g_rollKey > 0 ? g_rollKey : 0, k,
+                           d ? "pad" : "keyboard / mouse");
+            g_rollKey = k;
+        }
+    }
 }
 
 static void RollKeyLoad(HMODULE self) {
@@ -962,11 +977,20 @@ static void RollKeyLoad(HMODULE self) {
     strcpy_s(slash + 1, MAX_PATH - (slash + 1 - g_rollKeyPath), "er_engine_rollkey.txt");
     FILE* f = nullptr;
     if (fopen_s(&f, g_rollKeyPath, "r") == 0 && f) {
-        int k = -1;
-        if (fscanf_s(f, "%d", &k) == 1 && k > 0 && k < kKeyCodes) { g_rollKey = k; g_rollVotes[k] = 3; }
+        // "<last used> [<keyboard / mouse> <pad>]" (older files: the last used key only)
+        int k[3] = {-1, -1, -1};
+        int n = fscanf_s(f, "%d %d %d", &k[0], &k[1], &k[2]);
+        for (int i = 0; i < n && i < 3; ++i) {
+            if (k[i] <= 0 || k[i] >= kKeyCodes) continue;
+            g_rollKeyDev[k[i] >= 256 ? 1 : 0] = k[i];
+            g_rollVotes[k[i]] = 3;
+        }
+        if (n >= 1 && k[0] > 0 && k[0] < kKeyCodes) g_rollKey = k[0];
         fclose(f);
     }
-    Log("bufor uniku: klawisz uniku %s (0x%03X)", g_rollKey > 0 ? "wczytany" : "nieznany - nauczy sie z 3 udanych unikow", g_rollKey > 0 ? g_rollKey : 0);
+    Log("bufor uniku: klawisz uniku %s (0x%03X), keyboard / mouse 0x%03X, pad 0x%03X",
+        g_rollKey > 0 ? "wczytany" : "nieznany - nauczy sie z 3 udanych unikow", g_rollKey > 0 ? g_rollKey : 0,
+        g_rollKeyDev[0] > 0 ? g_rollKeyDev[0] : 0, g_rollKeyDev[1]);
 }
 
 // Diagnostyka: stan gry w chwili wcisniecia klawisza uniku i kazdego zadania uniku. Pola z dekompilacji
@@ -1046,11 +1070,16 @@ static void RollBufferTick(BYTE* ctx, float dt, void* p3) {
         // nauka: ktory klawisz (poza ruchem) zmienil stan w klatce zgloszenia uniku
         for (int c = 1; c < kKeyCodes; ++c) {
             if (IsMoveKey(c) || !(g_keyEdgeDown[c] || g_keyEdgeUp[c])) continue;
-            if (++g_rollVotes[c] >= 3 && (g_rollKey < 0 || g_rollVotes[c] > g_rollVotes[g_rollKey] + 2) && c != g_rollKey) {
+            int& slot = g_rollKeyDev[c >= 256 ? 1 : 0];  // learned per device (see g_rollKeyDev)
+            if (++g_rollVotes[c] >= 3 && (slot <= 0 || g_rollVotes[c] > g_rollVotes[slot] + 2) && c != slot) {
+                slot = c;
                 g_rollKey = c;
                 Log("[%7lu ms] bufor uniku: klawisz uniku = 0x%03X", now - g_t0, c);
                 FILE* f = nullptr;
-                if (g_rollKeyPath[0] && fopen_s(&f, g_rollKeyPath, "w") == 0 && f) { fprintf(f, "%d\n", c); fclose(f); }
+                if (g_rollKeyPath[0] && fopen_s(&f, g_rollKeyPath, "w") == 0 && f) {
+                    fprintf(f, "%d %d %d\n", c, g_rollKeyDev[0], g_rollKeyDev[1]);
+                    fclose(f);
+                }
             }
         }
         return;
@@ -1793,6 +1822,207 @@ static void FreeStaminaTick(const BYTE* ctx, void* p3) {
     }
 }
 
+#if ER_DIAG == 1
+// --- Camera probe (developer builds only, 2026-11-17) ------------------------------------------------------------
+// Player 17.11: a slight, quick camera jump when lock-on is released during a sprint (none in a run; hardly felt on
+// a boss with one enemy; the player thinks the camera snaps back to its default framing). Records the follow camera
+// ChrFollowCam ([[[exe+0x1C7A488]+0x60]+0x60], DSR-Gadget chain; fields from the DSR cheat table: position +0x40,
+// FOV +0x50, rotation +0xE0 / +0xE4, pivot +0x100..+0x108, pitch +0x140 / wanted pitch +0x150) and the rendered
+// camera (CamMan [exe+0x1C6E188] +0x10: matrix rows +0x10..+0x40, FOV +0x50) from kCamPre frames before to kCamPost
+// frames after each lock-on change (target set / cleared, or the mode byte ChrCtrl+0x21D). One line per frame goes
+// to cam_probe.log next to the log (the log ring holds only 6000 lines); one summary line per change goes to the
+// log, with the largest per-frame changes after the change and before it (the camera's own motion in that run).
+static float GroundSpeedRecent();
+struct CamSample {
+    float dtMs, yaw, pitch, dist, fov, pivY, rotA, rotB, camRot, wantRot, curYaw, curPitch, curFov, chrYaw, spd;
+    float tgtX, tgtZ, tgtDist, rsx, rsy;  // lock-on point (PlayerIns +0x1B0 / +0x1B8), its distance, right stick
+    BYTE mode, locked, sprint;
+};
+// 17.11 (player, pad, several enemies): the camera swung ~40 deg in 5 frames and then the game dropped the lock by
+// itself during the DLL sprint. A lock-on point that moves more than kCamTgtJump in one frame = another target; logged
+// always (not only in the probe window) with the distances and the right stick.
+constexpr float kCamTgtJump = 1.0f;
+static float g_camTgtX = 0.f, g_camTgtZ = 0.f, g_camTgtDist = 0.f;
+static bool g_camTgtHave = false;
+constexpr int kCamPre = 15, kCamPost = 60, kCamVals = 6;
+static CamSample g_camRing[kCamPre];
+static int g_camRingN = 0, g_camRingI = 0, g_camPost = 0, g_camEvent = 0;
+static BYTE g_camMode = 0xFF, g_camLocked = 0xFF;
+static CamSample g_camLast, g_camStart;
+static float g_camMaxPost[kCamVals], g_camMaxPre[kCamVals];
+static int g_camMaxAt[kCamVals];
+static FILE* g_camFile = nullptr;
+
+static BYTE* CamChain(ULONG_PTR rva, int off1, int off2) {
+    __try {
+        auto base = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr));
+        BYTE* p = *reinterpret_cast<BYTE**>(base + rva);
+        if (reinterpret_cast<ULONG_PTR>(p) < 0x10000) return nullptr;
+        p = *reinterpret_cast<BYTE**>(p + off1);
+        if (off2 >= 0 && reinterpret_cast<ULONG_PTR>(p) >= 0x10000) p = *reinterpret_cast<BYTE**>(p + off2);
+        return reinterpret_cast<ULONG_PTR>(p) < 0x10000 ? nullptr : p;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
+}
+
+static void CamRightStick(float* rx, float* ry) {
+    using GetStateFn = DWORD(WINAPI*)(DWORD, XINPUT_STATE*);
+    static GetStateFn getState = [] {
+        HMODULE m = GetModuleHandleA("xinput1_3.dll");
+        return m ? reinterpret_cast<GetStateFn>(GetProcAddress(m, "XInputGetState")) : nullptr;
+    }();
+    XINPUT_STATE xs{};
+    if (getState && getState(0, &xs) == ERROR_SUCCESS) {
+        *rx = xs.Gamepad.sThumbRX / 32767.f;
+        *ry = xs.Gamepad.sThumbRY / 32767.f;
+    }
+}
+
+static bool CamSampleNow(CamSample* s, float dt, BYTE* ctx, void* p3) {
+    memset(s, 0, sizeof(*s));
+    BYTE* fol = CamChain(0x1C7A488, 0x60, 0x60);
+    BYTE* cur = CamChain(0x1C6E188, 0x10, -1);
+    BYTE* pos = ChrPosData();
+    if (!fol || !pos) return false;
+    auto F = [](BYTE* p, int o) { return *reinterpret_cast<float*>(p + o); };
+    __try {
+        float dx = F(fol, 0x100) - F(fol, 0x40), dy = F(fol, 0x104) - F(fol, 0x44), dz = F(fol, 0x108) - F(fol, 0x48);
+        float h = sqrtf(dx * dx + dz * dz);
+        s->yaw = atan2f(-dx, -dz);  // camera -> pivot, same convention as the facing
+        s->pitch = atan2f(dy, h);
+        s->dist = sqrtf(h * h + dy * dy);
+        s->fov = F(fol, 0x50);
+        s->pivY = F(fol, 0x104);
+        s->rotA = F(fol, 0xE0);
+        s->rotB = F(fol, 0xE4);
+        s->camRot = F(fol, 0x140);
+        s->wantRot = F(fol, 0x150);
+        if (cur) {
+            float fx = F(cur, 0x30), fy = F(cur, 0x34), fz = F(cur, 0x38);
+            s->curYaw = atan2f(-fx, -fz);
+            s->curPitch = asinf(fy > 1.f ? 1.f : (fy < -1.f ? -1.f : fy));
+            s->curFov = F(cur, 0x50);
+        }
+        s->chrYaw = F(pos, 0x04);
+        s->sprint = ctx ? ctx[0x1E4] : 0;
+        s->mode = static_cast<BYTE*>(p3)[0x21D];
+        if (BYTE* chr = LockTargetChr(p3)) {
+            s->locked = 1;
+            s->tgtX = F(chr, 0x1B0);
+            s->tgtZ = F(chr, 0x1B8);
+            float dx = s->tgtX - F(pos, 0x10), dz = s->tgtZ - F(pos, 0x18);
+            s->tgtDist = sqrtf(dx * dx + dz * dz);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    CamRightStick(&s->rsx, &s->rsy);
+    s->dtMs = dt * 1000.f;
+    s->spd = GroundSpeedRecent();
+    return true;
+}
+
+// |change| per frame: camera yaw, pitch (deg), distance (m), FOV (deg if the game keeps radians), pivot height (m),
+// rendered camera yaw (deg).
+static void CamDeltas(const CamSample& a, const CamSample& b, float* d) {
+    d[0] = fabsf(WrapPi(b.yaw - a.yaw)) * 57.29578f;
+    d[1] = fabsf(b.pitch - a.pitch) * 57.29578f;
+    d[2] = fabsf(b.dist - a.dist);
+    d[3] = fabsf(b.fov - a.fov) * 57.29578f;
+    d[4] = fabsf(b.pivY - a.pivY);
+    d[5] = fabsf(WrapPi(b.curYaw - a.curYaw)) * 57.29578f;
+}
+
+static void CamWrite(int k, const CamSample& s) {
+    if (!g_camFile) return;
+    fprintf(g_camFile,
+            "%d %+3d dt %4.1f m%u L%u s%u spd %5.2f chr %6.1f | yaw %6.1f pit %5.1f dist %5.2f fov %6.3f pivY %7.2f "
+            "rot %7.3f %7.3f cr %7.3f wr %7.3f | cur %6.1f %5.1f fov %6.3f | tgt %7.2f %7.2f d %5.2f rs %5.2f %5.2f\n",
+            g_camEvent, k, s.dtMs, s.mode, s.locked, s.sprint, s.spd, s.chrYaw * 57.29578f, s.yaw * 57.29578f,
+            s.pitch * 57.29578f, s.dist, s.fov, s.pivY, s.rotA, s.rotB, s.camRot, s.wantRot, s.curYaw * 57.29578f,
+            s.curPitch * 57.29578f, s.curFov, s.tgtX, s.tgtZ, s.tgtDist, s.rsx, s.rsy);
+}
+
+static void CamProbeTick(BYTE* ctx, float dt, void* p3) {
+    if (!p3) return;
+    CamSample s;
+    if (!CamSampleNow(&s, dt, ctx, p3)) {
+        g_camRingN = 0;
+        g_camMode = g_camLocked = 0xFF;
+        return;
+    }
+    DWORD now = GetTickCount();
+    if (s.locked) {
+        float jump = g_camTgtHave ? sqrtf((s.tgtX - g_camTgtX) * (s.tgtX - g_camTgtX) + (s.tgtZ - g_camTgtZ) * (s.tgtZ - g_camTgtZ)) : 0.f;
+        if (jump > kCamTgtJump)
+            Log("[%7lu ms] lock target: point moved %.1f m in one frame (another target?), distance %.1f -> %.1f m, "
+                "mode %u, sprint %u, speed %.1f, DLL state %d, right stick %.2f %.2f, cam yaw %.0f",
+                now - g_t0, jump, g_camTgtDist, s.tgtDist, s.mode, s.sprint, s.spd, static_cast<int>(g_lsState), s.rsx,
+                s.rsy, s.curYaw * 57.29578f);
+        g_camTgtX = s.tgtX, g_camTgtZ = s.tgtZ, g_camTgtDist = s.tgtDist, g_camTgtHave = true;
+    } else if (g_camTgtHave) {
+        Log("[%7lu ms] lock target: lost at %.1f m (mode %u, sprint %u, speed %.1f, DLL state %d, right stick %.2f %.2f)",
+            now - g_t0, g_camTgtDist, s.mode, s.sprint, s.spd, static_cast<int>(g_lsState), s.rsx, s.rsy);
+        g_camTgtHave = false;
+    }
+    bool change = g_camMode != 0xFF && (s.mode != g_camMode || s.locked != g_camLocked);
+    if (change && g_camPost == 0) {
+        if (!g_camFile) {
+            char path[MAX_PATH];
+            sprintf_s(path, "%scam_probe.log", g_dir);
+            if (fopen_s(&g_camFile, path, "a") != 0) g_camFile = nullptr;
+            if (g_camFile) fprintf(g_camFile, "=== session (tick %lu) ===\n", now);
+        }
+        ++g_camEvent;
+        if (g_camFile)
+            fprintf(g_camFile, "event %d at %lu ms: lock %u->%u mode %u->%u\n", g_camEvent, now - g_t0, g_camLocked,
+                    s.locked, g_camMode, s.mode);
+        for (int v = 0; v < kCamVals; ++v) g_camMaxPre[v] = g_camMaxPost[v] = 0.f, g_camMaxAt[v] = 0;
+        int first = (g_camRingI - g_camRingN + kCamPre) % kCamPre;
+        float d[kCamVals];
+        for (int i = 0; i < g_camRingN; ++i) {
+            const CamSample& r = g_camRing[(first + i) % kCamPre];
+            if (i > 0) {
+                CamDeltas(g_camRing[(first + i - 1) % kCamPre], r, d);
+                for (int v = 0; v < kCamVals; ++v) if (d[v] > g_camMaxPre[v]) g_camMaxPre[v] = d[v];
+            }
+            CamWrite(i - g_camRingN, r);
+        }
+        g_camStart = s;
+        g_camPost = kCamPost + 1;
+    } else if (change && g_camFile) {
+        fprintf(g_camFile, "  another change: lock %u->%u mode %u->%u\n", g_camLocked, s.locked, g_camMode, s.mode);
+    }
+    if (g_camPost > 0) {
+        int k = kCamPost + 1 - g_camPost;
+        if (g_camRingN > 0) {
+            float d[kCamVals];
+            CamDeltas(g_camLast, s, d);
+            for (int v = 0; v < kCamVals; ++v)
+                if (d[v] > g_camMaxPost[v]) g_camMaxPost[v] = d[v], g_camMaxAt[v] = k;
+        }
+        CamWrite(k, s);
+        if (--g_camPost == 0) {
+            const CamSample& a = g_camStart;
+            Log("[%7lu ms] cam probe #%d: mode %u sprint %u spd %.1f chr-cam %.0f | max/frame after (before): yaw %.1f@%d (%.1f) "
+                "pit %.1f@%d (%.1f) dist %.2f@%d (%.2f) fov %.1f (%.1f) pivY %.2f (%.2f) | 1 s: yaw %.0f pit %.1f dist %.2f",
+                now - g_t0, g_camEvent, a.mode, a.sprint, a.spd, WrapPi(a.chrYaw - a.yaw) * 57.29578f,
+                g_camMaxPost[0], g_camMaxAt[0], g_camMaxPre[0], g_camMaxPost[1], g_camMaxAt[1], g_camMaxPre[1],
+                g_camMaxPost[2], g_camMaxAt[2], g_camMaxPre[2], g_camMaxPost[3], g_camMaxPre[3], g_camMaxPost[4],
+                g_camMaxPre[4], WrapPi(s.yaw - a.yaw) * 57.29578f, (s.pitch - a.pitch) * 57.29578f, s.dist - a.dist);
+            if (g_camFile) fflush(g_camFile);
+        }
+    }
+    g_camRing[g_camRingI] = s;
+    g_camRingI = (g_camRingI + 1) % kCamPre;
+    if (g_camRingN < kCamPre) ++g_camRingN;
+    g_camLast = s;
+    g_camMode = s.mode;
+    g_camLocked = s.locked;
+}
+#endif
+
 // Crash dump (diag builds): the log lives in a memory ring until F8, so a crash lost the history (pick-up test
 // 2026-11-14: access violation at exe+0x21073B, FUN_1402106d0 = model bounds from the bone matrices). Installed at
 // the first game frame (after the game's own setup), chained to the previous filter.
@@ -1828,6 +2058,9 @@ static void __fastcall InputDetour(void* ctx, float dt, void* p3) {
     GroundSpeedSample();
     SuppressSprintWhileDrinking(static_cast<BYTE*>(ctx));
     LockSprintTick(static_cast<BYTE*>(ctx), dt, p3);
+#if ER_DIAG == 1
+    CamProbeTick(static_cast<BYTE*>(ctx), dt, p3);
+#endif
     LockOnSprintPostInput(static_cast<BYTE*>(ctx), dt, p3);
     OmniRollPostInput(static_cast<BYTE*>(ctx), dt, p3);
     RollBufferTick(static_cast<BYTE*>(ctx), dt, p3);
