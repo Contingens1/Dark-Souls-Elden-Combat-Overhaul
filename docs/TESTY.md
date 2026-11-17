@@ -13,13 +13,11 @@ Stan: 2026-11-17 (ok. 11:40), nocna DLL = `main` + diagnostyka. Wydanie 0.5.6 op
 
 ## Do przetestowania
 
-K. **Kamera i duzi wrogowie — TERAZ: pomiar warstw kolizji (nocna DLL 17.11 ok. 11:46, `launch_test_all.bat`).** Kamera sprawdza swoją drogę kulą przez Havoka z warstwą kolizji 36. Ta warstwa zderza się z warstwami 0, 12, 17, 27, 28 i 29, ale nie wiadomo, które z nich to postacie. Nocna DLL ma sondę (`[Camera] CollisionProbe=1`): przy każdym zderzeniu kamery wpisuje do logu `camera collision: cast @... hits layer N`. Kamera działa na razie bez zmian (`IgnoreLayers=` puste).
-   - **Do zrobienia (ok. 2 min):**
-     - pobiegaj tyłem do ściany i obróć kamerę tak, żeby wjechała w ścianę;
-     - potem uciekaj od dużego wroga (najlepiej kilku), żeby kamera najechała na jego model, jak w zgłoszeniu;
-     - po każdym z tych dwóch wciśnij **F8**.
-   - Z logu ustalę, która warstwa to ściany, a która wrogowie. Wtedy w ini ustawię `IgnoreLayers` na warstwy postaci i będzie test drugi: kamera ma przechodzić przez wrogów, a dalej zatrzymywać się na ścianach.
-   - Migawka sprzed zmiany: `work\CAMCOLL_BEFORE_2026-11-17_STABLE\`.
+K. **Kamera i duzi wrogowie — zaliczone w nocnej paczce: `[Camera] PushOut=0` (17.11). Czeka na decyzję, czy wchodzi do wydania (tam na razie `PushOut=1`, czyli zachowanie gry).**
+   - **Przyczyna:** to nie kolizja kamery. Zapytania kolizji kamery w ogóle nie trafiają postaci (warstwa 28 to ściany, 27 to ziemia). Gra ma osobny mechanizm „wypychania kamery”: postać zakłada wokół punktu modelu typu `0xE4` kulę (promień z `NpcParam.pushOutCamRegionRadius`, w DSR wszędzie 0, więc z samego punktu). Kamerę, która wejdzie do kuli, gra przesuwa wzdłuż linii widoku **od postaci gracza** na drugą stronę kuli (koniec `FUN_140236c60`, test flagi pod RVA `0x23A023`). Przy Taurusach kamera skakała w jednej klatce o 3,1–3,6 m dalej, prosto w środek modelu, i po 0,1–0,5 s wracała skokiem. `CamDist` cały czas 3,80, więc nasze `LockCamParam` nie mają z tym związku.
+   - **Zmiana:** `PushOut=0` łata ten test flagi tak, że gra pomija każdą kulę, a kamera zostaje tam, gdzie liczy ją ChrFollowCam. Wynik u gracza: przeskakiwania nie ma, jest dużo lepiej. Kamera nadal czasem wchodzi w wroga, ale krócej i tylko wtedy, gdy duży wróg jest tuż przy niej (log: przesunięcie zawsze 0,00 m, kamera najbliżej 0,3–0,9 m od osi wroga).
+   - **Ukrywanie wroga z kamerą w środku: nie działa, usunięte z DLL.** Flaga ChrFlags1 `chr+0x294` bit `0x00800000` („ToggleDraw” z DSR-Gadget) nie chowa modelu. Przy marginesie 3 m DLL „ukryła” 36 postaci, a gracz nic nie zauważył. Prawdziwe wygaszanie wymaga znalezienia przezroczystości postaci w kodzie gry (trop: `camouflage` z `SpEffectVfx`, którego używa Hidden Body). Na później, zadanie 18c w planie.
+   - Migawka sprzed zmian kamery: `work\CAMCOLL_BEFORE_2026-11-17_STABLE\`.
 
 0. **Sprint przy namierzeniu — TERAZ: przycisk uniku na padzie + pomiar kamery (nocna DLL z 17.11 10:19, `launch_test_all.bat`).** Przy zawieszeniu od razu F8.
    - **Zgłoszenie (17.11 rano, pad): przy namierzeniu sprint nie wchodził, potem zaczął; w prawo kilka razy unik od razu.** Log: DLL zna przycisk uniku / sprintu tylko z nauki i pamiętała jeden — w pliku był przycisk myszy `0x006` z sesji na klawiaturze. B na padzie (`0x10D`) nie był dla niej unikiem, więc przy namierzeniu unik w bok / do tyłu wychodził przy wciśnięciu (jak w grze bez moda), a sprint przy namierzeniu nie startował (47, 52, 87, 144, 154 s). 90–115 s na myszy działało; w 157,6 s DLL nauczyła się B i od 159,6 s pad działał.

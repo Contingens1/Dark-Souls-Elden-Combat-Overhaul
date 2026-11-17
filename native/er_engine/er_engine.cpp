@@ -606,6 +606,9 @@ static bool g_lockTurnClipOff = false;        // [Roll] LockOnTurnClipOff
 static DWORD g_lockTurnClipWindowMs = 800;    // [Roll] LockOnTurnClipWindow
 static bool g_lockTargetGuard = false;        // [Roll] LockOnTargetGuard (v3.8, see TargetSetDetour)
 static float g_lockRange = 0.f;               // [Roll] LockOnRange (m, v3.8c; 0 = the game's 15 m)
+static unsigned long long g_camIgnoreLayers = 0;  // [Camera] IgnoreLayers (bit per collision layer, see CamCastDetour)
+static bool g_camProbe = false;               // [Camera] CollisionProbe (dev builds: log the layer the camera hits)
+static bool g_camPushOut = true;              // [Camera] PushOut (0 = no push-out spheres, see PatchCamPushOut)
 static void TargetGuardTick();                // below, with the lock target guard hooks
 static BYTE g_tcLastMode = 0xFF;              // movement mode seen in the last call for the player
 static DWORD g_tcSwitchAt = 0;                // tick of the last mode switch made with the stick held (0 = none)
@@ -886,6 +889,23 @@ static void LoadConfigIni() {
     g_lockTargetGuard = GetPrivateProfileIntA("Roll", "LockOnTargetGuard", 0, iniPath) != 0;
     g_lockRange = static_cast<float>(GetPrivateProfileIntA("Roll", "LockOnRange", 0, iniPath));
     Log("config: LockOnTargetGuard=%d LockOnRange=%.0f m", g_lockTargetGuard ? 1 : 0, g_lockRange);
+    {
+        // [Camera] IgnoreLayers = comma / space separated collision layers (0-62) the camera passes through
+        char buf[256] = {};
+        GetPrivateProfileStringA("Camera", "IgnoreLayers", "", buf, sizeof(buf), iniPath);
+        for (char* p = buf; *p;) {
+            if (*p >= '0' && *p <= '9') {
+                int v = static_cast<int>(strtol(p, &p, 10));
+                if (v >= 0 && v < 63) g_camIgnoreLayers |= 1ull << v;
+            } else {
+                ++p;
+            }
+        }
+        g_camProbe = kDevDiag && GetPrivateProfileIntA("Camera", "CollisionProbe", 0, iniPath) != 0;
+        g_camPushOut = GetPrivateProfileIntA("Camera", "PushOut", 1, iniPath) != 0;
+        Log("config: [Camera] IgnoreLayers=%s (mask %016llX) CollisionProbe=%d PushOut=%d", buf, g_camIgnoreLayers,
+            g_camProbe ? 1 : 0, g_camPushOut ? 1 : 0);
+    }
     Log("config: LockOnSprintTurnIn=%.0f TurnOut=%.0f deg/s Align=%.0f deg Accel=%.0f deg/s2 TurnStart=%lu ms "
         "BackAngle=%.0f deg SpeedHold=%d LockGuard=%d TurnClipOff=%d (window %lu ms)",
         g_lockSprintTurnIn, g_lockSprintTurnOut, g_lockSprintAlign, g_lockSprintTurnAccel, g_lockSprintTurnStartMs,
@@ -1951,6 +1971,121 @@ static void CamWrite(int k, const CamSample& s) {
             s.curPitch * 57.29578f, s.curFov, s.tgtX, s.tgtZ, s.tgtDist, s.rsx, s.rsy);
 }
 
+// 17.11 (player): running backward away from several Taurus Demons (no lock-on) the camera ends up inside their
+// model; it seemed to try to pull away and still stay inside. The camera's Havok casts never hit a character (probe
+// above), so this looks for any other reaction: while a live enemy is within kCamEnemyNear m (horizontal, from its
+// root axis) of the rendered camera, one line per frame goes to cam_probe.log with the camera position, its actual
+// distance to the player's pivot, ChrFollowCam CamDist (+0x184) / CamDistTarget (+0x188) and the enemy distance /
+// height; the log gets one line on entering and leaving with the min / max of CamDist in between.
+constexpr float kCamEnemyNear = 2.5f;
+static bool g_camEnemyIn = false;
+static DWORD g_camEnemyFrom = 0;
+static int g_camEnemyFrames = 0;
+static float g_camEnemyDistMin = 0.f, g_camEnemyDistMax = 0.f, g_camEnemyNearMin = 0.f;
+
+static bool CamNearestEnemy(float cx, float cy, float cz, float* dh, float* dy, int* nNear, BYTE** who) {
+    *dh = 1e9f, *dy = 0.f, *nNear = 0, *who = nullptr;
+    __try {
+        auto base = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr));
+        ULONG_PTR vtEnemy = reinterpret_cast<ULONG_PTR>(base) + kEnemyInsVtableRva;
+        BYTE* w = *reinterpret_cast<BYTE**>(base + 0x1C77E50);
+        if (!w) return false;
+        int blocks = *reinterpret_cast<int*>(w + 0x28);
+        BYTE* arr = *reinterpret_cast<BYTE**>(w + 0x30);
+        if (blocks <= 0 || blocks > 64 || reinterpret_cast<ULONG_PTR>(arr) < 0x10000) return false;
+        for (int b = 0; b < blocks; b++) {
+            BYTE* blk = arr + b * 0xE8;
+            int n = *reinterpret_cast<int*>(blk + 0x48);
+            BYTE* ent = *reinterpret_cast<BYTE**>(blk + 0x50);
+            if (n <= 0 || n > 2048 || reinterpret_cast<ULONG_PTR>(ent) < 0x10000) continue;
+            for (int i = 0; i < n; i++) {
+                BYTE* chr = *reinterpret_cast<BYTE**>(ent + i * 0x38);
+                if (reinterpret_cast<ULONG_PTR>(chr) < 0x10000) continue;
+                __try {
+                    if (*reinterpret_cast<ULONG_PTR*>(chr) != vtEnemy || *reinterpret_cast<int*>(chr + 0x3E8) <= 0) continue;
+                    BYTE* pos = *reinterpret_cast<BYTE**>(*reinterpret_cast<BYTE**>(chr + 0x68) + 0x28);
+                    float ex = *reinterpret_cast<float*>(pos + 0x10) - cx, ez = *reinterpret_cast<float*>(pos + 0x18) - cz;
+                    float d = sqrtf(ex * ex + ez * ez);
+                    if (d < kCamEnemyNear) ++*nNear;
+                    if (d < *dh) *dh = d, *dy = cy - *reinterpret_cast<float*>(pos + 0x14), *who = chr;
+                } __except (EXCEPTION_EXECUTE_HANDLER) {
+                }
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    return true;
+}
+
+static void CamEnemyTick(const CamSample& s) {
+    BYTE* fol = CamChain(0x1C7A488, 0x60, 0x60);
+    BYTE* cur = CamChain(0x1C6E188, 0x10, -1);
+    if (!fol || !cur) return;
+    float cx, cy, cz, camDist, camDistT, px, py, pz;
+    __try {
+        cx = *reinterpret_cast<float*>(cur + 0x40), cy = *reinterpret_cast<float*>(cur + 0x44);
+        cz = *reinterpret_cast<float*>(cur + 0x48);
+        camDist = *reinterpret_cast<float*>(fol + 0x184), camDistT = *reinterpret_cast<float*>(fol + 0x188);
+        px = *reinterpret_cast<float*>(fol + 0x100), py = *reinterpret_cast<float*>(fol + 0x104);
+        pz = *reinterpret_cast<float*>(fol + 0x108);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return;
+    }
+    float dh, dy;
+    int nNear;
+    BYTE* who;
+    if (!CamNearestEnemy(cx, cy, cz, &dh, &dy, &nNear, &who)) return;
+    float real = sqrtf((cx - px) * (cx - px) + (cy - py) * (cy - py) + (cz - pz) * (cz - pz));
+    // 17.11 test 3: near the Taurus Demons the rendered camera (CamMan) was 1.7-3.2 m away from ChrFollowCam's own
+    // position (+0x100; 0 everywhere else) with CamDist fixed at 3.80 and no cast hit. Logged also without an enemy
+    // nearby whenever that offset is over 0.3 m, with the player's root so the direction (closer / farther / higher)
+    // shows: horizontal distance player -> rendered camera and player -> follow camera, and both heights.
+    float plx = 0.f, ply = 0.f, plz = 0.f;
+    if (BYTE* pl = ChrPosData()) {
+        __try {
+            plx = *reinterpret_cast<float*>(pl + 0x10), ply = *reinterpret_cast<float*>(pl + 0x14);
+            plz = *reinterpret_cast<float*>(pl + 0x18);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
+    float hRen = sqrtf((cx - plx) * (cx - plx) + (cz - plz) * (cz - plz));
+    float hFol = sqrtf((px - plx) * (px - plx) + (pz - plz) * (pz - plz));
+    DWORD now = GetTickCount();
+    bool in = dh < kCamEnemyNear || real > 0.3f;
+    if (in && !g_camEnemyIn) {
+        g_camEnemyIn = true, g_camEnemyFrom = now, g_camEnemyFrames = 0;
+        g_camEnemyDistMin = g_camEnemyDistMax = camDist, g_camEnemyNearMin = dh;
+        Log("[%7lu ms] camera near enemy: %.2f m from %p (camera %.2f m above its feet), CamDist %.2f target %.2f, "
+            "camera offset from the follow cam %.2f m (rendered %.2f m from the player, follow cam %.2f m), lock %u, speed %.1f", now - g_t0, dh, who, dy, camDist, camDistT, real, hRen, hFol, s.locked, s.spd);
+        if (!g_camFile) {
+            char path[MAX_PATH];
+            sprintf_s(path, "%scam_probe.log", g_dir);
+            if (fopen_s(&g_camFile, path, "a") != 0) g_camFile = nullptr;
+        }
+        if (g_camFile) fprintf(g_camFile, "near enemy at %lu ms (%p)\n", now - g_t0, who);
+    }
+    if (in || g_camEnemyIn) {
+        if (camDist < g_camEnemyDistMin) g_camEnemyDistMin = camDist;
+        if (camDist > g_camEnemyDistMax) g_camEnemyDistMax = camDist;
+        if (dh < g_camEnemyNearMin) g_camEnemyNearMin = dh;
+        ++g_camEnemyFrames;
+        if (g_camFile)
+            fprintf(g_camFile, "  ne %+6lu dt %4.1f | cam %8.2f %7.2f %8.2f | CamDist %5.2f tgt %5.2f off %5.2f | "
+                    "ren h %5.2f y %+5.2f fol h %5.2f y %+5.2f | enemy %5.2f dy %+5.2f n%d | yaw %6.1f pit %5.1f | L%u "
+                    "spd %4.1f rs %5.2f %5.2f\n", now - g_camEnemyFrom, s.dtMs, cx, cy, cz, camDist, camDistT, real,
+                    hRen, cy - ply, hFol, py - ply, dh, dy, nNear, s.curYaw * 57.29578f, s.curPitch * 57.29578f,
+                    s.locked, s.spd, s.rsx, s.rsy);
+    }
+    if (!in && g_camEnemyIn) {
+        g_camEnemyIn = false;
+        Log("[%7lu ms] camera near enemy: left after %lu ms (%d frames), nearest %.2f m, CamDist %.2f..%.2f (now %.2f, "
+            "target %.2f)", now - g_t0, now - g_camEnemyFrom, g_camEnemyFrames, g_camEnemyNearMin, g_camEnemyDistMin,
+            g_camEnemyDistMax, camDist, camDistT);
+        if (g_camFile) fflush(g_camFile);
+    }
+}
+
 static void CamProbeTick(BYTE* ctx, float dt, void* p3) {
     if (!p3) return;
     CamSample s;
@@ -1959,6 +2094,7 @@ static void CamProbeTick(BYTE* ctx, float dt, void* p3) {
         g_camMode = g_camLocked = 0xFF;
         return;
     }
+    CamEnemyTick(s);
     DWORD now = GetTickCount();
     if (s.locked) {
         float jump = g_camTgtHave ? sqrtf((s.tgtX - g_camTgtX) * (s.tgtX - g_camTgtX) + (s.tgtZ - g_camTgtZ) * (s.tgtZ - g_camTgtZ)) : 0.f;
@@ -5154,6 +5290,198 @@ static void InstallTargetGuardHooks() {
     Log("lock target guard: target rating hook @0x40BE00: %s", MH_StatusToString(r));
 }
 
+// --- Camera collision with characters (2026-11-17, PLAN task 18c) ---------------------------------------------
+// The follow camera (FUN_140236c60) and the second camera update (FUN_14023e8f0) test their path with Havok sphere /
+// linear casts through FUN_1402b0af0 / FUN_1402b0860 (world wrapper, filterInfo, from, dir, radius, out pos, out
+// normal, out fraction), always with filterInfo 0x24 = collision layer 36. The world's FrpgCollisionFilter (vtable
+// exe+0x1309058, collision matrix of 64 qwords at +0x48, row = layer A, bit = layer B; isCollisionEnabled at
+// 0x29F0E0 tests row[cast layer] bit [object layer]) gives layer 36 the row 0x38021001 (layers 0, 12, 17, 27, 28,
+// 29). For the camera's casts only, the DLL passes the unused layer 63 instead, whose row = row 36 minus
+// [Camera] IgnoreLayers, so the camera passes through those layers and everything else stays the game's. The other
+// two callers of FUN_1402b0860 (0x2BD650, 0x3874F0) keep their own layers. CollisionProbe (dev builds) logs which
+// layer each camera hit belongs to (one extra cast per row-36 layer while hitting).
+constexpr unsigned kCamLayer = 36, kCamFreeLayer = 63;
+constexpr ULONG_PTR kCamFilterVt = 0x1309058;
+using CamCastFn = unsigned long long(__fastcall*)(void*, unsigned, float*, float*, unsigned long long, float*, void*, float*);
+static CamCastFn g_origCamCastS = nullptr, g_origCamCastR = nullptr;
+static BYTE* g_camWorld = nullptr;
+static unsigned long long* g_camMatrix = nullptr;  // FrpgCollisionFilter + 0x48
+static DWORD g_camProbeLogAt[8] = {};
+static int g_camProbeLast[8] = {};
+
+static bool CamIsCameraCaller(ULONG_PTR rva) {
+    return (rva >= 0x236C60 && rva < 0x23A420) || (rva >= 0x23E8F0 && rva < 0x2405A0);
+}
+
+static bool CamIsFrpgFilter(BYTE* q) {
+    auto base = reinterpret_cast<ULONG_PTR>(GetModuleHandleA(nullptr));
+    if (reinterpret_cast<ULONG_PTR>(q) < 0x10000 || (reinterpret_cast<ULONG_PTR>(q) & 7) || IsBadReadPtr(q, 0x250))
+        return false;
+    return *reinterpret_cast<ULONG_PTR*>(q) == base + kCamFilterVt;
+}
+
+// Finds the collision filter of the world the cast goes to (cached per world). hkpWorld::linearCast
+// (FUN_1409b5430, "TtworldLinCast") takes the filter from world+0xC0; the first test (17.11) found no
+// FrpgCollisionFilter directly in the world, so world+0xC0 may be a filter list: its pointers and the
+// pointer arrays they lead to are searched too (two levels, up to 16 entries each).
+static unsigned long long* CamFilterMatrix(void* wrap) {
+    auto base = reinterpret_cast<ULONG_PTR>(GetModuleHandleA(nullptr));
+    BYTE* found = nullptr;
+    ULONG_PTR topVt = 0;
+    int where = -1;
+    __try {
+        BYTE* world = *reinterpret_cast<BYTE**>(static_cast<BYTE*>(wrap) + 8);
+        if (world == g_camWorld) return g_camMatrix;  // searched once per world (nullptr = not found)
+        g_camWorld = world;
+        g_camMatrix = nullptr;
+        if (reinterpret_cast<ULONG_PTR>(world) < 0x10000) return nullptr;
+        BYTE* top = *reinterpret_cast<BYTE**>(world + 0xC0);
+        if (reinterpret_cast<ULONG_PTR>(top) >= 0x10000 && !IsBadReadPtr(top, 0x100)) {
+            topVt = *reinterpret_cast<ULONG_PTR*>(top) - base;
+            if (CamIsFrpgFilter(top)) found = top, where = 0;
+            for (int off = 8; !found && off < 0x100; off += 8) {
+                BYTE* q = *reinterpret_cast<BYTE**>(top + off);
+                if (CamIsFrpgFilter(q)) { found = q; where = off; break; }
+                if (reinterpret_cast<ULONG_PTR>(q) < 0x10000 || (reinterpret_cast<ULONG_PTR>(q) & 7) ||
+                    IsBadReadPtr(q, 16 * 8))
+                    continue;
+                for (int i = 0; i < 16; ++i) {  // q = an array of filter pointers (hkArray data)
+                    BYTE* e = reinterpret_cast<BYTE**>(q)[i];
+                    if (CamIsFrpgFilter(e)) { found = e; where = 0x1000 + off * 16 + i; break; }
+                }
+            }
+        }
+        if (found) {
+            g_camMatrix = reinterpret_cast<unsigned long long*>(found + 0x48);
+            Log("camera collision: filter found (world+0xC0 vtable rva %llX, place %X), layer %u row %016llX, layer %u "
+                "row %016llX", static_cast<unsigned long long>(topVt), where, kCamLayer, g_camMatrix[kCamLayer],
+                kCamFreeLayer, g_camMatrix[kCamFreeLayer]);
+            return g_camMatrix;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        g_camMatrix = nullptr;
+    }
+    Log("camera collision: no FrpgCollisionFilter for world %p (world+0xC0 vtable rva %llX) - camera casts left to "
+        "the game", g_camWorld, static_cast<unsigned long long>(topVt));
+    return nullptr;
+}
+
+// Dev probe: which row-36 layer does the vanilla camera cast hit? Leaves row 63 as the caller set it.
+static void CamProbeHit(CamCastFn orig, ULONG_PTR rva, void* w, unsigned info, float* from, float* dir,
+                        unsigned long long rad, unsigned long long* m) {
+    unsigned long long row = m[kCamLayer], keep = m[kCamFreeLayer];
+    unsigned freeInfo = (info & ~0x3Fu) | kCamFreeLayer;
+    float f0 = 1.f, f = 1.f;
+    m[kCamFreeLayer] = row;
+    bool hit0 = orig(w, freeInfo, from, dir, rad, nullptr, nullptr, &f0) != 0;
+    int layer = -1;
+    if (hit0) {
+        for (int l = 0; l < 63 && layer < 0; ++l) {
+            if (!(row >> l & 1)) continue;
+            m[kCamFreeLayer] = row & ~(1ull << l);
+            f = 1.f;
+            bool hit = orig(w, freeInfo, from, dir, rad, nullptr, nullptr, &f) != 0;
+            if (!hit || f > f0 + 1e-4f) layer = l;
+        }
+    }
+    m[kCamFreeLayer] = keep;
+    int slot = static_cast<int>((rva >> 4) & 7);
+    DWORD now = GetTickCount();
+    int key = hit0 ? layer : -2;
+    if (key != g_camProbeLast[slot] || (hit0 && now - g_camProbeLogAt[slot] >= 1000)) {
+        if (hit0)
+            Log("[%7lu ms] camera collision: cast @%06llX hits layer %d at %.2f of %.2f m%s", now - g_t0,
+                static_cast<unsigned long long>(rva), layer, f0,
+                sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]),
+                layer >= 0 && (g_camIgnoreLayers >> layer & 1) ? " (ignored by the DLL)" : "");
+        else if (g_camProbeLast[slot] >= -1)
+            Log("[%7lu ms] camera collision: cast @%06llX clear", now - g_t0, static_cast<unsigned long long>(rva));
+        g_camProbeLast[slot] = key;
+        g_camProbeLogAt[slot] = now;
+    }
+}
+
+static unsigned long long CamCastCommon(CamCastFn orig, ULONG_PTR ra, void* w, unsigned info, float* from, float* dir,
+                                        unsigned long long rad, float* outPos, void* outN, float* outFrac) {
+    auto base = reinterpret_cast<ULONG_PTR>(GetModuleHandleA(nullptr));
+    ULONG_PTR rva = ra - base;
+    if ((info & 0x3F) != kCamLayer || !CamIsCameraCaller(rva) || (!g_camIgnoreLayers && !g_camProbe))
+        return orig(w, info, from, dir, rad, outPos, outN, outFrac);
+    unsigned long long* m = CamFilterMatrix(w);
+    if (!m) return orig(w, info, from, dir, rad, outPos, outN, outFrac);
+    if (g_camProbe) CamProbeHit(orig, rva, w, info, from, dir, rad, m);
+    if (!g_camIgnoreLayers) return orig(w, info, from, dir, rad, outPos, outN, outFrac);
+    m[kCamFreeLayer] = m[kCamLayer] & ~g_camIgnoreLayers;
+    return orig(w, (info & ~0x3Fu) | kCamFreeLayer, from, dir, rad, outPos, outN, outFrac);
+}
+
+static unsigned long long __fastcall CamCastSDetour(void* w, unsigned info, float* from, float* dir,
+                                                    unsigned long long rad, float* outPos, void* outN, float* outFrac) {
+    return CamCastCommon(g_origCamCastS, reinterpret_cast<ULONG_PTR>(_ReturnAddress()), w, info, from, dir, rad, outPos,
+                         outN, outFrac);
+}
+
+static unsigned long long __fastcall CamCastRDetour(void* w, unsigned info, float* from, float* dir,
+                                                    unsigned long long rad, float* outPos, void* outN, float* outFrac) {
+    return CamCastCommon(g_origCamCastR, reinterpret_cast<ULONG_PTR>(_ReturnAddress()), w, info, from, dir, rad, outPos,
+                         outN, outFrac);
+}
+
+static void InstallCamCastHooks() {
+    static const BYTE kPro[] = {0x40, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8D, 0xAC, 0x24};
+    auto base = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr));
+    BYTE* s = base + 0x2B0AF0;
+    BYTE* r = base + 0x2B0860;
+    // FrpgCollisionFilter vtable slot 1 (0x29FBD0) as a check that the filter layout is the one read in Ghidra
+    if (memcmp(s, kPro, sizeof(kPro)) != 0 || memcmp(r, kPro, sizeof(kPro)) != 0 ||
+        *reinterpret_cast<ULONG_PTR*>(base + kCamFilterVt + 8) != reinterpret_cast<ULONG_PTR>(base) + 0x29FBD0) {
+        Log("camera collision: unexpected bytes @0x2B0AF0 / 0x2B0860 - off");
+        g_camIgnoreLayers = 0;
+        g_camProbe = false;
+        return;
+    }
+    MH_STATUS a = MH_CreateHook(s, reinterpret_cast<void*>(&CamCastSDetour), reinterpret_cast<void**>(&g_origCamCastS));
+    if (a == MH_OK) a = MH_EnableHook(s);
+    MH_STATUS b = MH_CreateHook(r, reinterpret_cast<void*>(&CamCastRDetour), reinterpret_cast<void**>(&g_origCamCastR));
+    if (b == MH_OK) b = MH_EnableHook(r);
+    if (a != MH_OK || b != MH_OK) {
+        if (a == MH_OK) MH_DisableHook(s);
+        if (b == MH_OK) MH_DisableHook(r);
+        g_camIgnoreLayers = 0;
+        g_camProbe = false;
+    }
+    Log("camera collision: cast hooks @0x2B0AF0 / 0x2B0860: %s / %s", MH_StatusToString(a), MH_StatusToString(b));
+}
+
+// Camera push-out spheres (Ghidra 17.11). At the end of the camera update FUN_140236c60, when the camera's +0x2C4 byte
+// is set, the game walks the sphere list [[0x141C7A130]+0x10] (node: centre +0x0, radius byte +0x10, flags +0x11,
+// next +0x18). Characters add one per model point of type 0xE4 (FUN_140810180; radius NpcParam pushOutCamRegionRadius,
+// 0 for every DSR row, else the point's own size). A sphere with flag 2 that holds the camera moves it along the view
+// ray, away from the player, to the sphere's far side (then a cast from the pivot clamps it). Test 17.11: near the
+// Taurus Demons this put the rendered camera 3.1-3.6 m behind ChrFollowCam's own position (+0x100), inside the
+// model, for 0.1-0.5 s, with a one-frame jump in and out. PushOut=0 turns the flag test
+// "test byte [rdi+0x11], 2" (RVA 0x23A023) into "test byte [rdi+0x11], 0", so every sphere is skipped and the camera
+// stays where ChrFollowCam put it.
+static void PatchCamPushOut() {
+    static const BYTE kExpect[] = {0xF6, 0x47, 0x11, 0x02, 0x0F, 0x84};
+    BYTE* p = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr)) + 0x23A023;
+    if (memcmp(p, kExpect, sizeof(kExpect)) != 0) {
+        Log("camera push-out: unexpected bytes @0x23A023 (%02X %02X %02X %02X) - left on", p[0], p[1], p[2], p[3]);
+        g_camPushOut = true;
+        return;
+    }
+    DWORD old = 0;
+    if (!VirtualProtect(p + 3, 1, PAGE_EXECUTE_READWRITE, &old)) {
+        Log("camera push-out: VirtualProtect failed (%lu) - left on", GetLastError());
+        g_camPushOut = true;
+        return;
+    }
+    p[3] = 0x00;
+    VirtualProtect(p + 3, 1, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), p, sizeof(kExpect));
+    Log("camera push-out: off (flag test @0x23A023 patched)");
+}
+
 static void InstallTurnDispatchHook() {
     static const BYTE kPrologue[] = {0x40, 0x53, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x70, 0x0F, 0x29, 0x74, 0x24, 0x60};
     auto target = reinterpret_cast<BYTE*>(GetModuleHandleA(nullptr)) + 0x39F5C0;
@@ -5240,6 +5568,8 @@ static DWORD WINAPI InitThread(LPVOID) {
         g_lockTurnClipOff = false;
     }
     if (g_lockTargetGuard) InstallTargetGuardHooks();
+    if (g_camIgnoreLayers || g_camProbe) InstallCamCastHooks();
+    if (!g_camPushOut) PatchCamPushOut();
     if (kDevDiag) InstallSubmitProbes();
     InstallDrinkSlowWalk();
     return 0;

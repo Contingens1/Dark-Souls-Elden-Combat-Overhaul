@@ -48,6 +48,7 @@ def main(argv=None) -> int:
     ap.add_argument("b", type=Path, nargs="?", default=GAME)
     ap.add_argument("--rows", type=int, default=4)
     args = ap.parse_args(argv)
+    args.a, args.b = args.a.resolve(), args.b.resolve()  # load_soulsformats changes the working directory
     sf = load_soulsformats()
     defs = [sf.PARAMDEF.XmlDeserialize(str(x), False) for x in sorted(DEFS.glob("*.xml"))]
     a, b = load(sf, defs, args.a), load(sf, defs, args.b)
