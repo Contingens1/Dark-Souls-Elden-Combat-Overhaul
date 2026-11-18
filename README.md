@@ -63,7 +63,7 @@ Gotowe do uruchomienia paczki dla testerów (niewymagające kompilacji kodu) zna
 
 * **Player Animations Repository** (Nexus Mods, DSR #748) — animacje z Elden Ringa przeniesione na szkielet DSR (wykorzystane w plikach `.anibnd.dcx`). **Zabrania się dalszej redystrybucji tych plików bez zgody autorów repozytorium.**
 * **DSROmniRoll** (Nexus Mods, DSR #1378) oraz **Simple Estus Walking** — inspiracje koncepcyjne dla własnych implementacji przewrotu we wszystkie strony i picia w ruchu (ich pliki nie są częścią projektu).
-* **Mod Engine 2** (`soulsmods`) — środowisko ładowania modyfikacji dla Dark Souls: Remastered.
+* **Mod Engine 2** (`soulsmods`) https://www.nexusmods.com/darksoulsremastered/mods/790 — środowisko ładowania modyfikacji dla Dark Souls: Remastered.
 * **MinHook** (Tsuda Kageyu) — biblioteka hooków wykorzystana w `er_engine.dll`.
 * **Elden Ring Nightreign** (FromSoftware) — animacje ataków drugiej fazy Artoriasa przeniesione do paczki; animacje i logika AI Gaping Dragona jako wzór.
 * **Elden Ring** (FromSoftware) — animacje ataków Omen Killera przeniesione na Capra Demona.
