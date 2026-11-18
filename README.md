@@ -44,6 +44,7 @@ Mod jest w trakcie rozwoju. Poniżej to, co jest znane i jeszcze nie działa jak
 
 ## W planie
 
+* **Włączanie i wyłączanie poszczególnych zmian:** obecnie można to zrobić tylko częściowo i w pliku ini, planowana jak najpełniejsza integracja do launchera.
 * **Integracja z Seamless Co-op:** sprawdzenie, czy i jak mod może działać razem z Seamless Co-op dla Dark Souls Remastered.
 * **Kamera:** kamera przechodząca przez wrogów zamiast zasłaniania ekranu i odjeżdżania od nich, bez samoczynnego unoszenia się.
 * **Kolejni bossowie** z ruchami z Elden Ringa, Nightreign i Dark Souls III.
